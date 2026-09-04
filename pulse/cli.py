@@ -7,13 +7,12 @@ Later we'll add more, like `pulse init` or `pulse reset`.
 """
 
 import argparse
+from pathlib import Path
 
-from pulse.server import run_server
+from pulse.server import DEFAULT_DATA_DIR, run_server
 
 
 def main():
-    # argparse is a built-in tool that reads what the user typed
-    # after "pulse" and figures out what they want to do.
     parser = argparse.ArgumentParser(
         prog="pulse",
         description="Pulse — a local analytics dashboard for your app.",
@@ -34,13 +33,18 @@ def main():
         action="store_true",
         help="Don't automatically open the dashboard in a browser",
     )
+    start_parser.add_argument(
+        "--data-dir",
+        type=Path,
+        default=DEFAULT_DATA_DIR,
+        help=f"Directory to store event data (default: {DEFAULT_DATA_DIR})",
+    )
 
     args = parser.parse_args()
 
     if args.command == "start":
-        run_server(port=args.port, open_browser=not args.no_browser)
+        run_server(port=args.port, open_browser=not args.no_browser, data_dir=args.data_dir)
     else:
-        # If someone just types "pulse" with no command, show them the help text
         parser.print_help()
 
 
