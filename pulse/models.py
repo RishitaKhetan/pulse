@@ -5,6 +5,10 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 
+class FunnelRequest(BaseModel):
+    steps: list[str]
+
+
 class Event(BaseModel):
     event_id: str = Field(default_factory=lambda: str(uuid4()))
     event_name: str

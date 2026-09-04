@@ -8,7 +8,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse
 
-from pulse.models import Event
+from pulse.models import Event, FunnelRequest
 from pulse.storage import EventStore, QueryEngine
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -71,6 +71,14 @@ def create_app(data_dir: Path) -> FastAPI:
     @app.get("/analytics/top-users")
     def analytics_top_users(limit: int = 10):
         return query.top_users(limit)
+
+    @app.post("/analytics/funnel")
+    def analytics_funnel(req: FunnelRequest):
+        return query.funnel(req.steps)
+
+    @app.get("/analytics/retention")
+    def analytics_retention():
+        return query.retention()
 
     return app
 

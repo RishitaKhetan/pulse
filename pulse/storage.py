@@ -167,3 +167,91 @@ class QueryEngine:
             f"GROUP BY user_id ORDER BY event_count DESC LIMIT {limit}"
         )
         return [{"user_id": r[0], "event_count": r[1]} for r in rows]
+
+    def funnel(self, steps: list[str]) -> list[dict]:
+        if not self._has_data() or not steps:
+            return []
+        glob = self._glob()
+
+        # Escape single quotes in step names
+        safe = [s.replace("'", "''") for s in steps]
+
+        step_cases = ", ".join(
+            f"MAX(CASE WHEN event_name = '{s}' THEN 1 ELSE 0 END) as s{i}"
+            for i, s in enumerate(safe)
+        )
+        step_counts = ", ".join(
+            f"SUM({'*'.join(f's{j}' for j in range(i + 1))}) as step_{i}"
+            for i in range(len(safe))
+        )
+
+        rows = self._run(f"""
+            WITH base AS (
+                SELECT user_id, event_name
+                FROM read_parquet('{glob}', union_by_name=true)
+                WHERE user_id IS NOT NULL
+            ),
+            user_steps AS (
+                SELECT user_id, {step_cases} FROM base GROUP BY user_id
+            )
+            SELECT {step_counts} FROM user_steps
+        """)
+
+        if not rows:
+            return []
+
+        counts = [rows[0][i] or 0 for i in range(len(steps))]
+        top = counts[0] or 1
+        result = []
+        for i, step in enumerate(steps):
+            prev = counts[i - 1] if i > 0 else counts[0]
+            result.append({
+                "step": step,
+                "users": counts[i],
+                "conversion_from_previous": round(counts[i] / prev, 3) if prev > 0 else 1.0,
+                "conversion_from_top": round(counts[i] / top, 3),
+            })
+        return result
+
+    def retention(self) -> list[dict]:
+        if not self._has_data():
+            return []
+        glob = self._glob()
+        rows = self._run(f"""
+            WITH first_seen AS (
+                SELECT user_id, MIN(DATE_TRUNC('day', timestamp)) AS cohort
+                FROM read_parquet('{glob}', union_by_name=true)
+                WHERE user_id IS NOT NULL
+                GROUP BY user_id
+            ),
+            activity AS (
+                SELECT DISTINCT user_id, DATE_TRUNC('day', timestamp) AS active_day
+                FROM read_parquet('{glob}', union_by_name=true)
+                WHERE user_id IS NOT NULL
+            ),
+            cohort_sizes AS (
+                SELECT cohort, COUNT(*) AS total_users FROM first_seen GROUP BY cohort
+            )
+            SELECT
+                CAST(f.cohort AS VARCHAR)   AS cohort,
+                DATEDIFF('day', f.cohort, a.active_day) AS day_number,
+                COUNT(DISTINCT a.user_id)   AS retained_users,
+                cs.total_users,
+                ROUND(COUNT(DISTINCT a.user_id) * 100.0 / cs.total_users, 1) AS retention_rate
+            FROM first_seen f
+            JOIN activity a ON f.user_id = a.user_id
+            JOIN cohort_sizes cs ON f.cohort = cs.cohort
+            WHERE DATEDIFF('day', f.cohort, a.active_day) BETWEEN 0 AND 30
+            GROUP BY f.cohort, day_number, cs.total_users
+            ORDER BY f.cohort, day_number
+        """)
+        return [
+            {
+                "cohort": r[0][:10],
+                "day": r[1],
+                "retained_users": r[2],
+                "cohort_size": r[3],
+                "retention_rate": float(r[4]),
+            }
+            for r in rows
+        ]

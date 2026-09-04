@@ -179,6 +179,27 @@
     </div>
 
     <div class="chart-card">
+      <h2>Funnel</h2>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
+        <input id="funnel-input" type="text"
+          value="page_view, button_click, signup"
+          style="flex:1;padding:8px 12px;border:1px solid #e9ecef;border-radius:8px;font-size:13px;outline:none;"
+          placeholder="step_1, step_2, step_3"
+        />
+        <button onclick="loadFunnel()"
+          style="padding:8px 16px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;">
+          Run
+        </button>
+      </div>
+      <div id="funnel-chart"></div>
+    </div>
+
+    <div class="chart-card">
+      <h2>Retention</h2>
+      <div id="retention-table"></div>
+    </div>
+
+    <div class="chart-card">
       <h2>Recent Events</h2>
       <div id="recent-events-table"></div>
     </div>
@@ -189,13 +210,33 @@
     let eventCountsChart = null;
 
     async function fetchAll() {
-      const [counts, overTime, topUsers, recent] = await Promise.all([
+      const steps = document.getElementById('funnel-input').value
+        .split(',').map(s => s.trim()).filter(Boolean);
+
+      const [counts, overTime, topUsers, recent, funnel, retention] = await Promise.all([
         fetch('/analytics/events').then(r => r.json()),
         fetch('/analytics/over-time?granularity=hour').then(r => r.json()),
         fetch('/analytics/top-users?limit=10').then(r => r.json()),
         fetch('/events?limit=20').then(r => r.json()),
+        fetch('/analytics/funnel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ steps }),
+        }).then(r => r.json()),
+        fetch('/analytics/retention').then(r => r.json()),
       ]);
-      return { counts, overTime, topUsers, recent };
+      return { counts, overTime, topUsers, recent, funnel, retention };
+    }
+
+    async function loadFunnel() {
+      const steps = document.getElementById('funnel-input').value
+        .split(',').map(s => s.trim()).filter(Boolean);
+      const data = await fetch('/analytics/funnel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ steps }),
+      }).then(r => r.json());
+      renderFunnel(data);
     }
 
     function renderCards(counts, topUsers) {
@@ -325,13 +366,86 @@
       `;
     }
 
+    function renderFunnel(data) {
+      const el = document.getElementById('funnel-chart');
+      if (!data.length) {
+        el.innerHTML = '<p class="empty">No data for these steps</p>';
+        return;
+      }
+      const top = data[0].users || 1;
+      el.innerHTML = data.map((d, i) => {
+        const pct = Math.round(d.conversion_from_top * 100);
+        const fromPrev = i === 0 ? 100 : Math.round(d.conversion_from_previous * 100);
+        return `
+          <div style="margin-bottom:16px;">
+            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">
+              <span style="font-weight:600;">${d.step}</span>
+              <span style="color:#6c757d;">${d.users.toLocaleString()} users
+                ${i > 0 ? `<span style="color:#adb5bd;margin-left:8px;">↓ ${fromPrev}% from prev</span>` : ''}
+              </span>
+            </div>
+            <div style="background:#f1f3f5;border-radius:6px;height:28px;overflow:hidden;">
+              <div style="background:#6366f1;height:100%;width:${pct}%;border-radius:6px;
+                display:flex;align-items:center;padding-left:10px;
+                color:#fff;font-size:12px;font-weight:600;min-width:36px;">
+                ${pct}%
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function renderRetention(data) {
+      const el = document.getElementById('retention-table');
+      if (!data.length) {
+        el.innerHTML = '<p class="empty">Not enough data yet — retention needs events across multiple days</p>';
+        return;
+      }
+
+      // Pivot: cohort → { day: rate }
+      const cohorts = [...new Set(data.map(r => r.cohort))];
+      const days = [...new Set(data.map(r => r.day))].sort((a, b) => a - b);
+      const lookup = {};
+      data.forEach(r => { lookup[`${r.cohort}__${r.day}`] = r.retention_rate; });
+
+      el.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Cohort</th>
+              <th>Size</th>
+              ${days.map(d => `<th>Day ${d}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${cohorts.map(cohort => {
+              const size = data.find(r => r.cohort === cohort)?.cohort_size || 0;
+              return `<tr>
+                <td>${cohort}</td>
+                <td><span class="badge">${size}</span></td>
+                ${days.map(d => {
+                  const rate = lookup[`${cohort}__${d}`];
+                  return `<td style="color:${rate >= 50 ? '#2d6a4f' : rate >= 20 ? '#6c757d' : '#adb5bd'}">
+                    ${rate != null ? rate + '%' : '—'}
+                  </td>`;
+                }).join('')}
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
     async function refresh() {
       try {
-        const { counts, overTime, topUsers, recent } = await fetchAll();
+        const { counts, overTime, topUsers, recent, funnel, retention } = await fetchAll();
         renderCards(counts, topUsers);
         if (overTime.length) renderOverTime(overTime);
         if (counts.length) renderEventCounts(counts);
         renderTopUsers(topUsers);
+        renderFunnel(funnel);
+        renderRetention(retention);
         renderRecentEvents(recent);
         document.getElementById('last-updated').textContent =
           `Updated ${new Date().toLocaleTimeString()}`;
