@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pulse</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f8f9fa;
+      color: #1a1a2e;
+      min-height: 100vh;
+    }
+
+    header {
+      background: #fff;
+      border-bottom: 1px solid #e9ecef;
+      padding: 16px 32px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    header h1 {
+      font-size: 20px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+    }
+
+    header h1 span { color: #6366f1; }
+
+    #last-updated { font-size: 13px; color: #6c757d; }
+
+    main {
+      padding: 32px;
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+    }
+
+    .card {
+      background: #fff;
+      border: 1px solid #e9ecef;
+      border-radius: 12px;
+      padding: 24px;
+    }
+
+    .card .label {
+      font-size: 12px;
+      color: #6c757d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 8px;
+    }
+
+    .card .value {
+      font-size: 36px;
+      font-weight: 700;
+      letter-spacing: -1px;
+    }
+
+    .chart-card {
+      background: #fff;
+      border: 1px solid #e9ecef;
+      border-radius: 12px;
+      padding: 24px;
+    }
+
+    .chart-card h2 {
+      font-size: 13px;
+      font-weight: 600;
+      color: #6c757d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 20px;
+    }
+
+    .charts-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th {
+      text-align: left;
+      font-size: 12px;
+      font-weight: 600;
+      color: #6c757d;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 0 0 10px;
+      border-bottom: 1px solid #e9ecef;
+    }
+
+    td {
+      padding: 10px 0;
+      border-bottom: 1px solid #f1f3f5;
+      color: #343a40;
+    }
+
+    tr:last-child td { border-bottom: none; }
+
+    .badge {
+      background: #f1f3f5;
+      color: #495057;
+      padding: 2px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .props {
+      font-size: 12px;
+      color: #adb5bd;
+      font-family: monospace;
+    }
+
+    .empty {
+      color: #adb5bd;
+      font-size: 14px;
+      text-align: center;
+      padding: 32px 0;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>pulse<span>.</span></h1>
+    <span id="last-updated">Loading...</span>
+  </header>
+
+  <main>
+    <div class="cards">
+      <div class="card">
+        <div class="label">Total Events</div>
+        <div class="value" id="total-events">—</div>
+      </div>
+      <div class="card">
+        <div class="label">Event Types</div>
+        <div class="value" id="event-types">—</div>
+      </div>
+      <div class="card">
+        <div class="label">Active Users</div>
+        <div class="value" id="active-users">—</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h2>Events Over Time</h2>
+      <canvas id="over-time-chart" height="80"></canvas>
+    </div>
+
+    <div class="charts-row">
+      <div class="chart-card">
+        <h2>Event Breakdown</h2>
+        <canvas id="event-counts-chart" height="200"></canvas>
+      </div>
+      <div class="chart-card">
+        <h2>Top Users</h2>
+        <div id="top-users-table"></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h2>Recent Events</h2>
+      <div id="recent-events-table"></div>
+    </div>
+  </main>
+
+  <script>
+    let overTimeChart = null;
+    let eventCountsChart = null;
+
+    async function fetchAll() {
+      const [counts, overTime, topUsers, recent] = await Promise.all([
+        fetch('/analytics/events').then(r => r.json()),
+        fetch('/analytics/over-time?granularity=hour').then(r => r.json()),
+        fetch('/analytics/top-users?limit=10').then(r => r.json()),
+        fetch('/events?limit=20').then(r => r.json()),
+      ]);
+      return { counts, overTime, topUsers, recent };
+    }
+
+    function renderCards(counts, topUsers) {
+      const total = counts.reduce((sum, e) => sum + e.count, 0);
+      document.getElementById('total-events').textContent = total.toLocaleString();
+      document.getElementById('event-types').textContent = counts.length;
+      document.getElementById('active-users').textContent = topUsers.length;
+    }
+
+    function renderOverTime(data) {
+      const labels = data.map(d => {
+        const date = new Date(d.bucket);
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      });
+      const values = data.map(d => d.count);
+      const ctx = document.getElementById('over-time-chart').getContext('2d');
+
+      if (overTimeChart) {
+        overTimeChart.data.labels = labels;
+        overTimeChart.data.datasets[0].data = values;
+        overTimeChart.update();
+        return;
+      }
+
+      overTimeChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            borderColor: '#6366f1',
+            backgroundColor: 'rgba(99,102,241,0.08)',
+            tension: 0.3,
+            fill: true,
+            pointRadius: 4,
+            pointBackgroundColor: '#6366f1',
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { color: '#f1f3f5' } },
+            x: { grid: { display: false } },
+          }
+        }
+      });
+    }
+
+    function renderEventCounts(data) {
+      const labels = data.map(d => d.event_name);
+      const values = data.map(d => d.count);
+      const ctx = document.getElementById('event-counts-chart').getContext('2d');
+
+      if (eventCountsChart) {
+        eventCountsChart.data.labels = labels;
+        eventCountsChart.data.datasets[0].data = values;
+        eventCountsChart.update();
+        return;
+      }
+
+      eventCountsChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels,
+          datasets: [{
+            data: values,
+            backgroundColor: '#6366f1',
+            borderRadius: 6,
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { beginAtZero: true, grid: { color: '#f1f3f5' } },
+            x: { grid: { display: false } },
+          }
+        }
+      });
+    }
+
+    function renderTopUsers(data) {
+      const el = document.getElementById('top-users-table');
+      if (!data.length) {
+        el.innerHTML = '<p class="empty">No users yet</p>';
+        return;
+      }
+      el.innerHTML = `
+        <table>
+          <thead><tr><th>User</th><th>Events</th></tr></thead>
+          <tbody>
+            ${data.map(u => `
+              <tr>
+                <td>${u.user_id}</td>
+                <td><span class="badge">${u.event_count}</span></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    function renderRecentEvents(data) {
+      const el = document.getElementById('recent-events-table');
+      if (!data.length) {
+        el.innerHTML = '<p class="empty">No events yet</p>';
+        return;
+      }
+      const rows = [...data].reverse();
+      el.innerHTML = `
+        <table>
+          <thead>
+            <tr><th>Event</th><th>User</th><th>Time</th><th>Properties</th></tr>
+          </thead>
+          <tbody>
+            ${rows.map(e => `
+              <tr>
+                <td><strong>${e.event_name}</strong></td>
+                <td>${e.user_id || '—'}</td>
+                <td>${new Date(e.timestamp).toLocaleTimeString()}</td>
+                <td class="props">${Object.keys(e.properties || {}).length ? JSON.stringify(e.properties) : '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    }
+
+    async function refresh() {
+      try {
+        const { counts, overTime, topUsers, recent } = await fetchAll();
+        renderCards(counts, topUsers);
+        if (overTime.length) renderOverTime(overTime);
+        if (counts.length) renderEventCounts(counts);
+        renderTopUsers(topUsers);
+        renderRecentEvents(recent);
+        document.getElementById('last-updated').textContent =
+          `Updated ${new Date().toLocaleTimeString()}`;
+      } catch {
+        document.getElementById('last-updated').textContent = 'Error loading data';
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 30_000);
+  </script>
+</body>
+</html>
