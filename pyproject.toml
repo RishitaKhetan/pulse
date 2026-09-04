@@ -1,0 +1,22 @@
+[project]
+name = "pulse-analytics"
+version = "0.1.0"
+description = "A plug-and-play local analytics dashboard for developers"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+]
+
+[project.scripts]
+pulse = "pulse.cli:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["pulse*"]
+
+[tool.setuptools.package-data]
+pulse = ["static/*"]
