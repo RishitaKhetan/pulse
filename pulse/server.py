@@ -5,7 +5,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
 from pulse.models import Event, FunnelRequest
@@ -27,9 +28,23 @@ def create_app(data_dir: Path) -> FastAPI:
 
     app = FastAPI(title="Pulse", lifespan=lifespan)
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
     @app.get("/", response_class=HTMLResponse)
     def read_root():
         return (STATIC_DIR / "index.html").read_text()
+
+    @app.get("/pulse.js")
+    def serve_sdk():
+        return Response(
+            content=(STATIC_DIR / "pulse.js").read_text(),
+            media_type="application/javascript",
+        )
 
     @app.get("/health")
     def health_check():
