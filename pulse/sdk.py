@@ -61,6 +61,19 @@ class PulseClient:
         except Exception:
             pass  # never crash the caller's app
 
+    def experiment(self, experiment_name: str, user_id: str) -> str | None:
+        try:
+            from urllib.parse import urlencode
+            qs = urlencode({"user_id": user_id})
+            req = urllib.request.Request(
+                f"{self._endpoint}/experiments/{experiment_name}/assign?{qs}",
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return json.loads(resp.read()).get("variant")
+        except Exception:
+            return None
+
     def flush(self) -> None:
         self._flush()
 
@@ -77,6 +90,12 @@ def track(event_name: str, user_id: str | None = None, properties: dict[str, Any
     if _client is None:
         return
     _client.track(event_name, user_id=user_id, properties=properties)
+
+
+def experiment(experiment_name: str, user_id: str) -> str | None:
+    if _client is None:
+        return None
+    return _client.experiment(experiment_name, user_id)
 
 
 def flush() -> None:

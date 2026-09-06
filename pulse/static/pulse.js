@@ -118,5 +118,14 @@
     window.addEventListener('beforeunload', _flush);
   }
 
-  window.Pulse = { init: init, track: track, identify: identify, flush: _flush };
+  function experiment(experimentName, userId) {
+    var url = _endpoint + '/experiments/' + encodeURIComponent(experimentName)
+      + '/assign?user_id=' + encodeURIComponent(userId);
+    return fetch(url)
+      .then(function (r) { return r.json(); })
+      .then(function (d) { return d.variant; })
+      .catch(function () { return null; });
+  }
+
+  window.Pulse = { init: init, track: track, identify: identify, experiment: experiment, flush: _flush };
 })();

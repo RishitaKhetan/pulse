@@ -213,6 +213,46 @@ class QueryEngine:
             })
         return result
 
+    def experiment_results(self, experiment_name: str, goal_event: str) -> list[dict]:
+        if not self._has_data():
+            return []
+        glob = self._glob()
+        safe_exp = experiment_name.replace("'", "''")
+        safe_goal = goal_event.replace("'", "''")
+        rows = self._run(f"""
+            WITH assignments AS (
+                SELECT
+                    json_extract_string(properties, '$.variant') AS variant,
+                    user_id
+                FROM read_parquet('{glob}', union_by_name=true)
+                WHERE event_name = '$experiment_assignment'
+                  AND json_extract_string(properties, '$.experiment') = '{safe_exp}'
+                  AND user_id IS NOT NULL
+            ),
+            conversions AS (
+                SELECT DISTINCT user_id
+                FROM read_parquet('{glob}', union_by_name=true)
+                WHERE event_name = '{safe_goal}'
+                  AND user_id IS NOT NULL
+            ),
+            per_variant AS (
+                SELECT variant, COUNT(DISTINCT user_id) AS users
+                FROM assignments
+                GROUP BY variant
+            ),
+            converted AS (
+                SELECT a.variant, COUNT(DISTINCT a.user_id) AS conversions
+                FROM assignments a
+                INNER JOIN conversions c ON a.user_id = c.user_id
+                GROUP BY a.variant
+            )
+            SELECT p.variant, p.users, COALESCE(cv.conversions, 0) AS conversions
+            FROM per_variant p
+            LEFT JOIN converted cv ON p.variant = cv.variant
+            ORDER BY p.variant
+        """)
+        return [{"variant": r[0], "users": r[1], "conversions": r[2]} for r in rows]
+
     def retention(self) -> list[dict]:
         if not self._has_data():
             return []

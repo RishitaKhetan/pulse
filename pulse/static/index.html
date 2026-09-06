@@ -200,6 +200,11 @@
     </div>
 
     <div class="chart-card">
+      <h2>Experiments</h2>
+      <div id="experiments-section"></div>
+    </div>
+
+    <div class="chart-card">
       <h2>Recent Events</h2>
       <div id="recent-events-table"></div>
     </div>
@@ -447,6 +452,95 @@
         renderFunnel(funnel);
         renderRetention(retention);
         renderRecentEvents(recent);
+        document.getElementById('last-updated').textContent =
+          `Updated ${new Date().toLocaleTimeString()}`;
+      } catch {
+        document.getElementById('last-updated').textContent = 'Error loading data';
+      }
+    }
+
+    async function renderExperiments() {
+      const el = document.getElementById('experiments-section');
+      let experiments;
+      try {
+        experiments = await fetch('/experiments').then(r => r.json());
+      } catch {
+        el.innerHTML = '<p class="empty">Could not load experiments</p>';
+        return;
+      }
+      if (!experiments.length) {
+        el.innerHTML = '<p class="empty">No experiments yet — create one via POST /experiments</p>';
+        return;
+      }
+
+      const results = await Promise.all(
+        experiments.map(e => fetch('/experiments/' + e.name + '/results').then(r => r.json()).catch(() => null))
+      );
+
+      el.innerHTML = experiments.map((exp, i) => {
+        const r = results[i];
+        const statusColor = exp.status === 'running' ? '#2d6a4f' : '#6c757d';
+        let html = `
+          <div style="margin-bottom:28px;">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+              <strong style="font-size:15px;">${exp.name}</strong>
+              <span style="font-size:11px;font-weight:600;color:${statusColor};
+                background:${exp.status === 'running' ? '#d8f3dc' : '#f1f3f5'};
+                padding:2px 8px;border-radius:20px;">${exp.status}</span>
+              <span style="font-size:12px;color:#6c757d;">goal: <code>${exp.goal_event}</code></span>
+            </div>
+        `;
+        if (!r || !r.variants.length) {
+          html += '<p style="color:#adb5bd;font-size:13px;">No assignment data yet</p>';
+        } else {
+          const winner = r.winner;
+          html += `<table>
+            <thead><tr>
+              <th>Variant</th><th>Users</th><th>Conversions</th><th>Rate</th><th></th>
+            </tr></thead>
+            <tbody>
+              ${r.variants.map(v => `
+                <tr>
+                  <td><strong>${v.variant}</strong></td>
+                  <td>${v.users}</td>
+                  <td>${v.conversions}</td>
+                  <td>${(v.conversion_rate * 100).toFixed(1)}%</td>
+                  <td>${winner === v.variant
+                    ? '<span style="background:#d8f3dc;color:#2d6a4f;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">winner</span>'
+                    : ''}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>`;
+
+          if (r.p_value !== null) {
+            const sig = r.significant;
+            html += `<p style="margin-top:10px;font-size:12px;color:#6c757d;">
+              p-value: <strong>${r.p_value}</strong> —
+              <span style="color:${sig ? '#2d6a4f' : '#6c757d'};">
+                ${sig ? 'statistically significant (95% confidence)' : 'not yet significant'}
+              </span>
+            </p>`;
+          } else {
+            html += `<p style="margin-top:10px;font-size:12px;color:#adb5bd;">Not enough data for significance test</p>`;
+          }
+        }
+        html += '</div>';
+        return html;
+      }).join('<hr style="border:none;border-top:1px solid #f1f3f5;margin:16px 0;">');
+    }
+
+    async function refresh() {
+      try {
+        const { counts, overTime, topUsers, recent, funnel, retention } = await fetchAll();
+        renderCards(counts, topUsers);
+        if (overTime.length) renderOverTime(overTime);
+        if (counts.length) renderEventCounts(counts);
+        renderTopUsers(topUsers);
+        renderFunnel(funnel);
+        renderRetention(retention);
+        renderRecentEvents(recent);
+        await renderExperiments();
         document.getElementById('last-updated').textContent =
           `Updated ${new Date().toLocaleTimeString()}`;
       } catch {

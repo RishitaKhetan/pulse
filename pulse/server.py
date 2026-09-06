@@ -1,3 +1,4 @@
+import math
 import threading
 import time
 import webbrowser
@@ -5,12 +6,26 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 
-from pulse.models import Event, FunnelRequest
+from pulse.experiments import ExperimentStore
+from pulse.models import Event, Experiment, FunnelRequest
 from pulse.storage import EventStore, QueryEngine
+
+
+def _z_test_p_value(n1: int, c1: int, n2: int, c2: int) -> float | None:
+    if n1 < 1 or n2 < 1 or (c1 + c2) == 0:
+        return None
+    p_pool = (c1 + c2) / (n1 + n2)
+    if p_pool in (0.0, 1.0):
+        return None
+    se = math.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2))
+    if se == 0:
+        return None
+    z = abs(c1 / n1 - c2 / n2) / se
+    return float(math.erfc(z / math.sqrt(2)))
 
 STATIC_DIR = Path(__file__).parent / "static"
 DEFAULT_DATA_DIR = Path.home() / ".pulse" / "data" / "events"
@@ -19,6 +34,7 @@ DEFAULT_DATA_DIR = Path.home() / ".pulse" / "data" / "events"
 def create_app(data_dir: Path) -> FastAPI:
     store = EventStore(data_dir=data_dir)
     query = QueryEngine(data_dir=data_dir)
+    exp_store = ExperimentStore(data_dir=data_dir)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -94,6 +110,69 @@ def create_app(data_dir: Path) -> FastAPI:
     @app.get("/analytics/retention")
     def analytics_retention():
         return query.retention()
+
+    @app.post("/experiments", status_code=201)
+    def create_experiment(exp: Experiment):
+        try:
+            return exp_store.create(exp)
+        except ValueError as e:
+            raise HTTPException(status_code=409, detail=str(e))
+
+    @app.get("/experiments")
+    def list_experiments():
+        return exp_store.list_all()
+
+    @app.get("/experiments/{name}/assign")
+    def assign_variant(name: str, user_id: str):
+        exp = exp_store.get(name)
+        if not exp:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+        variant = exp_store.assign(exp, user_id)
+        store.add(Event(
+            event_name="$experiment_assignment",
+            user_id=user_id,
+            properties={"experiment": name, "variant": variant},
+        ))
+        return {"experiment": name, "user_id": user_id, "variant": variant}
+
+    @app.get("/experiments/{name}/results")
+    def get_experiment_results(name: str):
+        exp = exp_store.get(name)
+        if not exp:
+            raise HTTPException(status_code=404, detail="Experiment not found")
+
+        rows = query.experiment_results(name, exp.goal_event)
+        variant_results = [
+            {
+                "variant": r["variant"],
+                "users": r["users"],
+                "conversions": r["conversions"],
+                "conversion_rate": round(r["conversions"] / r["users"], 4) if r["users"] > 0 else 0.0,
+            }
+            for r in rows
+        ]
+
+        p_value = None
+        significant = False
+        winner = None
+
+        if len(variant_results) == 2:
+            v1, v2 = variant_results
+            p_value = _z_test_p_value(v1["users"], v1["conversions"], v2["users"], v2["conversions"])
+            if p_value is not None:
+                significant = p_value < 0.05
+                if significant:
+                    winner = max(variant_results, key=lambda v: v["conversion_rate"])["variant"]
+
+        return {
+            "experiment": name,
+            "goal_event": exp.goal_event,
+            "status": exp.status,
+            "variants": variant_results,
+            "p_value": round(p_value, 4) if p_value is not None else None,
+            "significant": significant,
+            "winner": winner,
+        }
 
     return app
 
