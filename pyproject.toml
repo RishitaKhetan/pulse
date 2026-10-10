@@ -2,13 +2,37 @@
 name = "pulse-analytics"
 version = "0.1.0"
 description = "A plug-and-play local analytics dashboard for developers"
+readme = "README.md"
 requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Rishita Khetan", email = "khetanrishita16@gmail.com"}]
+keywords = ["analytics", "dashboard", "events", "local", "parquet", "duckdb"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
 dependencies = [
     "fastapi",
     "uvicorn",
     "pyarrow",
     "duckdb",
 ]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/rishita-khetan/pulse"
+Repository = "https://github.com/rishita-khetan/pulse.git"
+Issues = "https://github.com/rishita-khetan/pulse/issues"
 
 [project.scripts]
 pulse = "pulse.cli:main"
@@ -17,8 +41,8 @@ pulse = "pulse.cli:main"
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-[tool.setuptools.packages.find]
-include = ["pulse*"]
+[tool.setuptools]
+packages = ["pulse"]
 
 [tool.setuptools.package-data]
-pulse = ["static/*"]
+pulse = ["static/**/*"]
