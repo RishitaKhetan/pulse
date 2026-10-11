@@ -49,6 +49,7 @@ def create_app(data_dir: Path) -> FastAPI:
         allow_origins=["*"],
         allow_methods=["*"],
         allow_headers=["*"],
+        allow_credentials=False,
     )
 
     @app.get("/", response_class=HTMLResponse)
@@ -89,27 +90,45 @@ def create_app(data_dir: Path) -> FastAPI:
         combined.sort(key=lambda e: e.timestamp)
         return combined[-limit:]
 
+    @app.post("/flush")
+    def flush_events():
+        # Force flush pending events to disk
+        count = store.flush()
+        return {"flushed": count}
+
     @app.get("/analytics/events")
     def analytics_event_counts():
+        # Flush buffered events first
+        store.flush()
         return query.event_counts()
 
     @app.get("/analytics/over-time")
     def analytics_events_over_time(granularity: str = "hour"):
+        store.flush()
         if granularity not in ("hour", "day"):
             granularity = "hour"
         return query.events_over_time(granularity)
 
     @app.get("/analytics/top-users")
     def analytics_top_users(limit: int = 10):
+        store.flush()
         return query.top_users(limit)
 
     @app.post("/analytics/funnel")
     def analytics_funnel(req: FunnelRequest):
+        store.flush()
         return query.funnel(req.steps)
 
     @app.get("/analytics/retention")
     def analytics_retention():
+        store.flush()
         return query.retention()
+
+    @app.get("/analytics/funnel-suggestions")
+    def analytics_funnel_suggestions(max_depth: int = 4, min_users: int = 2):
+        store.flush()
+        suggestions = query.detect_funnel_patterns(max_depth, min_users)
+        return {"suggestions": suggestions}
 
     @app.post("/experiments", status_code=201)
     def create_experiment(exp: Experiment):

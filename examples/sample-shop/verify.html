@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Event Tracking Verification</title>
+    <style>
+        body { font-family: Arial; padding: 2rem; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; }
+        h1 { color: #333; }
+        .section { background: white; padding: 2rem; margin: 1rem 0; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        button { padding: 10px 20px; margin: 10px 5px 10px 0; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .log { background: #f0f0f0; padding: 1rem; border-radius: 4px; margin-top: 1rem; max-height: 400px; overflow-y: auto; font-size: 12px; font-family: monospace; }
+        .log-entry { margin: 5px 0; padding: 5px; border-left: 3px solid #007bff; padding-left: 10px; }
+        .log-entry.success { border-left-color: green; }
+        .log-entry.warning { border-left-color: orange; }
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-top: 1rem; }
+        .stat-box { background: #e7f3ff; padding: 1rem; border-radius: 4px; text-align: center; }
+        .stat-box h3 { color: #007bff; margin: 0 0 10px 0; }
+        .stat-box p { font-size: 2rem; font-weight: bold; margin: 0; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Event Tracking Verification</h1>
+
+        <div class="section">
+            <h2>1. Simple Flow Test</h2>
+            <p>Click buttons in order to test event tracking:</p>
+            <button onclick="testFlow()">Run Test Flow</button>
+            <button onclick="flushAndCheck()">Flush & Check Dashboard</button>
+            <div class="log" id="flowLog"></div>
+        </div>
+
+        <div class="section">
+            <h2>2. Current Dashboard Data</h2>
+            <button onclick="fetchDashboardData()">Fetch Current Data</button>
+            <div id="dashboardData"></div>
+        </div>
+
+        <div class="section">
+            <h2>3. Event Queue Status</h2>
+            <button onclick="checkQueue()">Check Queue</button>
+            <div class="log" id="queueLog"></div>
+        </div>
+    </div>
+
+    <!-- Load Pulse SDK -->
+    <script src="http://localhost:4747/pulse.js"></script>
+
+    <script>
+        const flowLog = document.getElementById('flowLog');
+
+        const log = (msg, type = 'info') => {
+            const div = document.createElement('div');
+            div.className = 'log-entry ' + (type === 'success' ? 'success' : type === 'warning' ? 'warning' : '');
+            div.textContent = new Date().toLocaleTimeString() + ' - ' + msg;
+            flowLog.appendChild(div);
+            flowLog.scrollTop = flowLog.scrollHeight;
+            console.log(msg);
+        };
+
+        // Initialize Pulse
+        Pulse.init();
+        log('Pulse initialized', 'success');
+
+        const testFlow = async () => {
+            flowLog.innerHTML = '';
+            log('Starting test flow...', 'success');
+
+            const userId = 'test_user_' + Date.now();
+            log('User ID: ' + userId);
+
+            Pulse.identify(userId);
+            log('Identified user', 'success');
+
+            // Simulate shopping flow
+            log('Step 1: Viewing page');
+            Pulse.track('page_view', { page: '/shop' });
+
+            log('Step 2: Viewing product');
+            Pulse.track('product_view', { product: 'Laptop', price: 999 });
+
+            log('Step 3: Adding to cart');
+            Pulse.track('add_to_cart', { product: 'Laptop', price: 999 });
+
+            log('Step 4: Viewing another product');
+            Pulse.track('product_view', { product: 'Mouse', price: 29 });
+
+            log('Step 5: Adding another item');
+            Pulse.track('add_to_cart', { product: 'Mouse', price: 29 });
+
+            log('Step 6: Starting checkout');
+            Pulse.track('begin_checkout', { items: 2, total: 1028 });
+
+            log('Step 7: Completing purchase');
+            Pulse.track('purchase', { items: 2, total: 1028, order_id: 'ORD-' + Date.now() });
+
+            log('Test flow complete! 7 events queued.', 'success');
+            log('Now click "Flush & Check Dashboard" to send to server');
+        };
+
+        const flushAndCheck = async () => {
+            log('Flushing events to server...', 'success');
+            Pulse.flush();
+
+            // Wait a moment for server to process
+            await new Promise(r => setTimeout(r, 2000));
+
+            log('Checking dashboard...', 'success');
+            await fetchDashboardData();
+        };
+
+        const fetchDashboardData = async () => {
+            try {
+                const [counts, users, timeline] = await Promise.all([
+                    fetch('http://localhost:4747/analytics/events').then(r => r.json()),
+                    fetch('http://localhost:4747/analytics/top-users').then(r => r.json()),
+                    fetch('http://localhost:4747/analytics/over-time').then(r => r.json()),
+                ]);
+
+                const totalEvents = counts.reduce((sum, c) => sum + c.count, 0);
+
+                let html = `
+                    <div class="stats">
+                        <div class="stat-box">
+                            <h3>Total Events</h3>
+                            <p>${totalEvents}</p>
+                        </div>
+                        <div class="stat-box">
+                            <h3>Event Types</h3>
+                            <p>${counts.length}</p>
+                        </div>
+                        <div class="stat-box">
+                            <h3>Top Users</h3>
+                            <p>${users.length}</p>
+                        </div>
+                    </div>
+
+                    <h3>Events by Type:</h3>
+                    <ul>
+                        ${counts.map(c => `<li>${c.event_name}: ${c.count}</li>`).join('')}
+                    </ul>
+
+                    <h3>Top Users:</h3>
+                    <ul>
+                        ${users.map(u => `<li>${u.user_id}: ${u.event_count} events</li>`).join('')}
+                    </ul>
+
+                    <h3>Timeline:</h3>
+                    <ul>
+                        ${timeline.map(t => `<li>${t.bucket}: ${t.count} events</li>`).join('')}
+                    </ul>
+                `;
+
+                document.getElementById('dashboardData').innerHTML = html;
+                log('Dashboard data fetched successfully', 'success');
+            } catch (e) {
+                log('Error fetching dashboard data: ' + e.message, 'warning');
+                document.getElementById('dashboardData').innerHTML = '<p style="color:red;">Error: ' + e.message + '</p>';
+            }
+        };
+
+        const checkQueue = () => {
+            const queueLog = document.getElementById('queueLog');
+            queueLog.innerHTML = '';
+
+            const logMsg = (msg, type = 'info') => {
+                const div = document.createElement('div');
+                div.className = 'log-entry ' + (type === 'success' ? 'success' : type === 'warning' ? 'warning' : '');
+                div.textContent = msg;
+                queueLog.appendChild(div);
+            };
+
+            logMsg('Pulse SDK Status Check', 'success');
+            logMsg('Pulse object: ' + typeof window.Pulse);
+            logMsg('Pulse.track: ' + typeof Pulse.track);
+            logMsg('Pulse.flush: ' + typeof Pulse.flush);
+            logMsg('Pulse.init: ' + typeof Pulse.init);
+            logMsg('Pulse.identify: ' + typeof Pulse.identify);
+
+            logMsg('To flush events manually, click "Flush & Check Dashboard"', 'info');
+        };
+
+        // Auto-fetch on load
+        setTimeout(() => {
+            fetchDashboardData();
+        }, 1000);
+    </script>
+</body>
+</html>

@@ -295,3 +295,52 @@ class QueryEngine:
             }
             for r in rows
         ]
+
+    def detect_funnel_patterns(self, max_depth: int = 4, min_users: int = 2) -> list[dict]:
+        # Auto-detect common event sequences (funnels) from user behavior
+        if not self._has_data():
+            return []
+
+        glob = self._glob()
+
+        # Get all events per user, ordered by timestamp
+        rows = self._run(f"""
+            SELECT user_id, event_name
+            FROM read_parquet('{glob}', union_by_name=true)
+            WHERE user_id IS NOT NULL
+            ORDER BY user_id, timestamp
+        """)
+
+        if not rows:
+            return []
+
+        # Group events by user
+        user_events = {}
+        for user_id, event_name in rows:
+            if user_id not in user_events:
+                user_events[user_id] = []
+            user_events[user_id].append(event_name)
+
+        # Extract all sequences
+        sequence_counts = {}
+        for user_id, events in user_events.items():
+            for length in range(2, min(max_depth + 1, len(events) + 1)):
+                for i in range(len(events) - length + 1):
+                    sequence = tuple(events[i:i + length])
+                    sequence_counts[sequence] = sequence_counts.get(sequence, 0) + 1
+
+        # Sort by frequency and filter
+        total_users = len(user_events)
+        funnels = []
+
+        for sequence, user_count in sorted(sequence_counts.items(),
+                                          key=lambda x: x[1],
+                                          reverse=True):
+            if user_count >= min_users:
+                funnels.append({
+                    "steps": list(sequence),
+                    "user_count": user_count,
+                    "conversion_rate": round(user_count / total_users, 4)
+                })
+
+        return funnels

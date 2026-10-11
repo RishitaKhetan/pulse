@@ -49,3 +49,55 @@ class TestEventStore:
         assert len(parquet_files) > 0
 
         store.stop()
+
+
+class TestFunnelDetection:
+    def test_detect_funnel_patterns(self, temp_data_dir):
+        from pulse.storage import QueryEngine
+
+        store = EventStore(data_dir=temp_data_dir)
+        store.start()
+
+        # Create events that form a funnel pattern
+        events = [
+            Event(event_name="page_view", user_id="alice"),
+            Event(event_name="button_click", user_id="alice"),
+            Event(event_name="signup", user_id="alice"),
+            Event(event_name="page_view", user_id="bob"),
+            Event(event_name="button_click", user_id="bob"),
+            Event(event_name="signup", user_id="bob"),
+            Event(event_name="page_view", user_id="charlie"),
+            Event(event_name="signup", user_id="charlie"),
+        ]
+        store.add_many(events)
+        store.flush()
+        store.stop()
+
+        # Query for funnel patterns
+        query = QueryEngine(data_dir=temp_data_dir)
+        patterns = query.detect_funnel_patterns(max_depth=3, min_users=1)
+
+        assert len(patterns) > 0
+        # Should find page_view -> button_click -> signup (2 users)
+        funnel_steps = [p["steps"] for p in patterns]
+        assert ["page_view", "button_click", "signup"] in funnel_steps
+
+    def test_detect_funnel_patterns_filters_by_min_users(self, temp_data_dir):
+        from pulse.storage import QueryEngine
+
+        store = EventStore(data_dir=temp_data_dir)
+        store.start()
+
+        # Create a pattern with only 1 user
+        events = [
+            Event(event_name="page_view", user_id="alice"),
+            Event(event_name="signup", user_id="alice"),
+        ]
+        store.add_many(events)
+        store.flush()
+        store.stop()
+
+        query = QueryEngine(data_dir=temp_data_dir)
+        # Should return nothing because min_users=2
+        patterns = query.detect_funnel_patterns(max_depth=3, min_users=2)
+        assert len(patterns) == 0

@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Minimal Shop Test</title>
+    <style>
+        body { font-family: Arial; padding: 2rem; line-height: 1.6; }
+        button { padding: 10px 20px; margin: 10px 0; font-size: 16px; }
+        .log { background: #f0f0f0; padding: 1rem; margin: 1rem 0; border-radius: 4px; max-height: 300px; overflow-y: auto; font-family: monospace; }
+        .log div { margin: 5px 0; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Minimal Shop Test</h1>
+    <button onclick="testTrack()">Test Track Event</button>
+    <button onclick="testFlush()">Test Flush</button>
+    <button onclick="clearLog()">Clear Log</button>
+
+    <h2>Log:</h2>
+    <div class="log" id="log"></div>
+
+    <!-- Load Pulse SDK -->
+    <script src="http://localhost:4747/pulse.js"></script>
+
+    <script>
+        const log = (msg, isError = false) => {
+            const logEl = document.getElementById('log');
+            const div = document.createElement('div');
+            div.textContent = new Date().toLocaleTimeString() + ' - ' + msg;
+            div.className = isError ? 'error' : 'success';
+            logEl.appendChild(div);
+            logEl.scrollTop = logEl.scrollHeight;
+            console.log(msg);
+        };
+
+        const clearLog = () => {
+            document.getElementById('log').innerHTML = '';
+        };
+
+        // Initialize Pulse
+        log('Initializing Pulse...');
+        Pulse.init();
+        log('Pulse initialized');
+
+        const testTrack = () => {
+            log('Identifying user: test_user_' + Date.now());
+            Pulse.identify('test_user_' + Date.now());
+
+            log('Tracking: add_to_cart event');
+            Pulse.track('add_to_cart', { product: 'Test Product', price: 99.99 });
+
+            log('Tracking: product_view event');
+            Pulse.track('product_view', { product: 'Test Product' });
+
+            log('Events queued. They will flush in 3 seconds or when you click Flush');
+        };
+
+        const testFlush = () => {
+            log('Flushing events...');
+            try {
+                Pulse.flush();
+                log('Flush called! Events should be sent to server');
+            } catch (e) {
+                log('Error: ' + e.message, true);
+            }
+        };
+
+        // Auto test on load
+        setTimeout(() => {
+            log('Auto-testing after 2 seconds...');
+            testTrack();
+        }, 2000);
+
+        // Monitor network requests
+        const originalFetch = window.fetch;
+        window.fetch = function(...args) {
+            if (args[0].includes('/events')) {
+                log('NETWORK: Sending to ' + args[0]);
+            }
+            return originalFetch.apply(this, args).then(r => {
+                if (args[0].includes('/events')) {
+                    log('NETWORK: Response status ' + r.status);
+                }
+                return r;
+            }).catch(e => {
+                log('NETWORK ERROR: ' + e.message, true);
+                throw e;
+            });
+        };
+    </script>
+</body>
+</html>

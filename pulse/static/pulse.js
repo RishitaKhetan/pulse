@@ -35,17 +35,13 @@
     var url = _endpoint + '/events/batch';
     var body = JSON.stringify(events);
     try {
-      if (navigator.sendBeacon) {
-        var blob = new Blob([body], { type: 'application/json' });
-        navigator.sendBeacon(url, blob);
-      } else {
-        fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: body,
-          keepalive: true,
-        }).catch(function () {});
-      }
+      // Use fetch without credentials to avoid CORS issues
+      fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: body,
+        credentials: 'omit',
+      }).catch(function () {});
     } catch (_) {}
   }
 

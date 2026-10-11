@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Pulse SDK Test</title>
+    <style>
+        body { font-family: Arial; padding: 2rem; }
+        .box { background: #f0f0f0; padding: 1rem; margin: 1rem 0; border-radius: 4px; }
+        button { padding: 0.5rem 1rem; margin: 0.5rem; cursor: pointer; }
+        .status { margin: 1rem 0; padding: 1rem; border-radius: 4px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+    </style>
+</head>
+<body>
+    <h1>Pulse SDK Test</h1>
+
+    <div class="box">
+        <h2>Step 1: Check if Pulse SDK Loaded</h2>
+        <button onclick="checkPulse()">Check Pulse</button>
+        <div id="status1"></div>
+    </div>
+
+    <div class="box">
+        <h2>Step 2: Send a Test Event</h2>
+        <button onclick="sendTestEvent()">Send Event</button>
+        <div id="status2"></div>
+    </div>
+
+    <div class="box">
+        <h2>Step 3: Track Custom Event</h2>
+        <button onclick="trackCustom()">Track Custom Event</button>
+        <div id="status3"></div>
+    </div>
+
+    <div class="box">
+        <h2>Step 4: Flush Events</h2>
+        <button onclick="flushEvents()">Flush Now</button>
+        <div id="status4"></div>
+    </div>
+
+    <div class="box">
+        <h2>Browser Console</h2>
+        <p>Open F12 Developer Tools and check the Console tab for any errors.</p>
+    </div>
+
+    <!-- Load Pulse SDK -->
+    <script src="http://localhost:4747/pulse.js"></script>
+
+    <script>
+        console.log("Page loaded");
+        console.log("Pulse object:", window.Pulse);
+
+        function updateStatus(elementId, message, isSuccess) {
+            const el = document.getElementById(elementId);
+            el.className = 'status ' + (isSuccess ? 'success' : 'error');
+            el.textContent = message;
+            console.log(message);
+        }
+
+        function checkPulse() {
+            console.log("Checking Pulse...");
+            if (typeof window.Pulse === 'undefined') {
+                updateStatus('status1', 'ERROR: Pulse SDK not loaded!', false);
+                return;
+            }
+            console.log("Pulse methods:", Object.keys(window.Pulse));
+            updateStatus('status1', 'OK: Pulse SDK loaded successfully!', true);
+        }
+
+        function sendTestEvent() {
+            console.log("Sending test event...");
+            try {
+                Pulse.init();
+                Pulse.identify("test_user");
+                Pulse.track("test_event", { message: "This is a test" });
+                updateStatus('status2', 'OK: Event queued (will flush in 3 seconds)', true);
+            } catch (e) {
+                updateStatus('status2', 'ERROR: ' + e.message, false);
+            }
+        }
+
+        function trackCustom() {
+            console.log("Tracking custom event...");
+            try {
+                Pulse.identify("custom_user_" + Math.random().toString(36).substr(2, 5));
+                Pulse.track("button_click", { button_name: "test_button" });
+                Pulse.track("purchase", { amount: 99.99, currency: "USD" });
+                updateStatus('status3', 'OK: Custom events queued', true);
+            } catch (e) {
+                updateStatus('status3', 'ERROR: ' + e.message, false);
+            }
+        }
+
+        function flushEvents() {
+            console.log("Flushing events...");
+            try {
+                Pulse.flush();
+                updateStatus('status4', 'OK: Events flushed! Check Pulse dashboard', true);
+            } catch (e) {
+                updateStatus('status4', 'ERROR: ' + e.message, false);
+            }
+        }
+
+        // Auto check on load
+        setTimeout(() => {
+            console.log("Auto-checking Pulse on load...");
+            checkPulse();
+        }, 1000);
+    </script>
+</body>
+</html>

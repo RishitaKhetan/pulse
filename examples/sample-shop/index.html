@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TechShop - Demo Store with Pulse Analytics</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; }
+        .navbar { background: #2c3e50; color: white; padding: 1rem 2rem; }
+        .navbar h1 { font-size: 1.5rem; }
+        .navbar p { font-size: 0.85rem; color: #bdc3c7; margin-top: 0.5rem; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .alert { background: #e8f5e9; border-left: 4px solid #4caf50; padding: 1rem; margin-bottom: 2rem; border-radius: 4px; }
+        .alert p { color: #2e7d32; font-size: 0.9rem; }
+
+        .section { background: white; padding: 2rem; margin-bottom: 2rem; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .section h2 { margin-bottom: 1.5rem; color: #2c3e50; }
+
+        .products { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 1.5rem; }
+        .product { background: #f9f9f9; border: 1px solid #e0e0e0; padding: 1.5rem; border-radius: 6px; }
+        .product h3 { color: #2c3e50; margin-bottom: 0.5rem; }
+        .product-price { font-size: 1.5rem; color: #e74c3c; font-weight: bold; margin: 0.5rem 0; }
+        .product-desc { color: #666; font-size: 0.9rem; margin-bottom: 1rem; }
+        .btn { background: #3498db; color: white; border: none; padding: 0.75rem 1.5rem; border-radius: 4px; cursor: pointer; font-size: 0.95rem; transition: background 0.2s; }
+        .btn:hover { background: #2980b9; }
+        .btn-success { background: #27ae60; }
+        .btn-success:hover { background: #229954; }
+        .btn-danger { background: #e74c3c; }
+        .btn-danger:hover { background: #c0392b; }
+
+        .cart { background: #f0f0f0; padding: 1rem; border-radius: 4px; margin-bottom: 1rem; }
+        .cart p { margin: 0.5rem 0; color: #2c3e50; }
+        .cart-total { font-size: 1.2rem; font-weight: bold; color: #e74c3c; }
+
+        .checkout-flow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 2rem; }
+        .step { background: #ecf0f1; padding: 1.5rem; border-radius: 4px; text-align: center; }
+        .step.active { background: #3498db; color: white; }
+        .step-num { font-size: 1.5rem; font-weight: bold; margin-bottom: 0.5rem; }
+        .step-name { font-size: 0.95rem; }
+
+        .user-info { background: #f9f9f9; padding: 1rem; border-radius: 4px; margin-bottom: 1rem; }
+        input { width: 100%; padding: 0.75rem; margin-bottom: 1rem; border: 1px solid #ddd; border-radius: 4px; font-size: 0.95rem; }
+
+        .status { margin-top: 1rem; padding: 1rem; border-radius: 4px; text-align: center; font-weight: bold; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.error { background: #f8d7da; color: #721c24; }
+
+        @media (max-width: 768px) {
+            .checkout-flow { grid-template-columns: 1fr; }
+            .products { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <h1>TechShop Demo Store</h1>
+        <p>Live Pulse Analytics Integration - Watch events appear in your dashboard!</p>
+    </div>
+
+    <div class="container">
+        <div class="alert">
+            <p><strong>How it works:</strong> Browse products, add to cart, and checkout. Each action sends an event to Pulse. View analytics at <code>http://localhost:4747</code></p>
+        </div>
+
+        <!-- Checkout Progress -->
+        <div class="section">
+            <h2>Your Shopping Journey</h2>
+            <div class="checkout-flow">
+                <div class="step active" id="step-browse">
+                    <div class="step-num">1</div>
+                    <div class="step-name">Browse</div>
+                </div>
+                <div class="step" id="step-cart">
+                    <div class="step-num">2</div>
+                    <div class="step-name">Add to Cart</div>
+                </div>
+                <div class="step" id="step-checkout">
+                    <div class="step-num">3</div>
+                    <div class="step-name">Checkout</div>
+                </div>
+                <div class="step" id="step-purchase">
+                    <div class="step-num">4</div>
+                    <div class="step-name">Purchase</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Products Section -->
+        <div class="section" id="browse-section">
+            <h2>Featured Products</h2>
+            <div class="products" id="products-list">
+                <!-- Products loaded by JS -->
+            </div>
+        </div>
+
+        <!-- Cart Section -->
+        <div class="section" id="cart-section" style="display: none;">
+            <h2>Your Cart</h2>
+            <div id="cart-items"></div>
+            <div class="cart">
+                <p>Cart Total: <span class="cart-total" id="cart-total">$0.00</span></p>
+            </div>
+            <button class="btn btn-success" onclick="goToCheckout()" style="width: 100%; padding: 1rem; font-size: 1.1rem;">
+                Proceed to Checkout
+            </button>
+            <button class="btn" onclick="goBackToBrowse()" style="width: 100%; padding: 1rem; font-size: 1.1rem; margin-top: 0.5rem;">
+                Continue Shopping
+            </button>
+        </div>
+
+        <!-- Checkout Section -->
+        <div class="section" id="checkout-section" style="display: none;">
+            <h2>Checkout</h2>
+            <div class="user-info">
+                <h3>Shipping Information</h3>
+                <input type="text" placeholder="Full Name" id="fullname" value="Customer">
+                <input type="email" placeholder="Email" id="email" value="customer@example.com">
+                <input type="text" placeholder="Address" id="address" value="123 Main St">
+            </div>
+
+            <div class="user-info">
+                <h3>Payment Information</h3>
+                <input type="text" placeholder="Card Number" id="card" value="4111 1111 1111 1111">
+                <input type="text" placeholder="Expiry (MM/YY)" id="expiry" value="12/25">
+            </div>
+
+            <div class="cart">
+                <p>Order Total: <span class="cart-total" id="checkout-total">$0.00</span></p>
+            </div>
+
+            <button class="btn btn-success" onclick="completePurchase()" style="width: 100%; padding: 1rem; font-size: 1.1rem;">
+                Complete Purchase
+            </button>
+            <button class="btn" onclick="goBackToCart()" style="width: 100%; padding: 1rem; font-size: 1.1rem; margin-top: 0.5rem;">
+                Back to Cart
+            </button>
+        </div>
+
+        <!-- Success Section -->
+        <div class="section" id="success-section" style="display: none;">
+            <h2>Thank You for Your Purchase!</h2>
+            <div class="status success">
+                <p>Order #<span id="order-id"></span> confirmed!</p>
+                <p style="margin-top: 1rem;">Check your Pulse dashboard to see all the events from your shopping journey.</p>
+            </div>
+            <button class="btn" onclick="resetStore()" style="width: 100%; padding: 1rem; font-size: 1.1rem; margin-top: 1rem;">
+                Start Shopping Again
+            </button>
+        </div>
+    </div>
+
+    <!-- Pulse Analytics SDK -->
+    <script src="http://localhost:4747/pulse.js"></script>
+    <script>
+        // Initialize Pulse Analytics
+        Pulse.init();
+
+        // Store state
+        let currentUser = generateUserId();
+        let cart = [];
+        let currentPage = 'browse';
+
+        // Products catalog
+        const products = [
+            { id: 1, name: 'Laptop Pro', price: 1299, desc: 'High-performance laptop' },
+            { id: 2, name: 'Wireless Mouse', price: 29, desc: 'Precision ergonomic mouse' },
+            { id: 3, name: 'USB-C Hub', price: 49, desc: '7-in-1 multi-port hub' },
+            { id: 4, name: 'Monitor 4K', price: 399, desc: '27-inch ultra HD display' },
+            { id: 5, name: 'Mechanical Keyboard', price: 149, desc: 'RGB backlit keyboard' },
+            { id: 6, name: 'Webcam 1080p', price: 79, desc: 'HD streaming camera' },
+        ];
+
+        // Initialize page
+        window.addEventListener('load', () => {
+            console.log('TechShop loaded. User ID:', currentUser);
+            Pulse.identify(currentUser);  // Set the current user
+            Pulse.track('page_view', { page: 'shop' });
+            renderProducts();
+        });
+
+        function generateUserId() {
+            const adjectives = ['happy', 'smart', 'quick', 'bold', 'wise'];
+            const nouns = ['panda', 'eagle', 'tiger', 'wolf', 'lion', 'bear'];
+            const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+            const noun = nouns[Math.floor(Math.random() * nouns.length)];
+            return adj + '_' + noun;
+        }
+
+        function renderProducts() {
+            const list = document.getElementById('products-list');
+            list.innerHTML = products.map(p => `
+                <div class="product">
+                    <h3>${p.name}</h3>
+                    <div class="product-price">$${p.price}</div>
+                    <p class="product-desc">${p.desc}</p>
+                    <button class="btn" onclick="addToCart(${p.id}, '${p.name}', ${p.price})">
+                        Add to Cart
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function addToCart(productId, productName, price) {
+            console.log('Added to cart:', productName);
+
+            Pulse.track('product_view', {
+                product_id: productId,
+                product_name: productName,
+                price: price
+            });
+
+            Pulse.track('add_to_cart', {
+                product_id: productId,
+                product_name: productName,
+                price: price,
+                cart_size: cart.length + 1
+            });
+
+            cart.push({ productId, productName, price });
+            goToCart();
+        }
+
+        function goToCart() {
+            currentPage = 'cart';
+            updateSteps();
+            document.getElementById('browse-section').style.display = 'none';
+            document.getElementById('checkout-section').style.display = 'none';
+            document.getElementById('success-section').style.display = 'none';
+            document.getElementById('cart-section').style.display = 'block';
+
+            const cartItems = document.getElementById('cart-items');
+            const total = cart.reduce((sum, item) => sum + item.price, 0);
+
+            cartItems.innerHTML = cart.map((item, i) => `
+                <div class="cart" style="display: flex; justify-content: space-between; align-items: center;">
+                    <span>${item.productName} - $${item.price}</span>
+                    <button class="btn btn-danger" onclick="removeFromCart(${i})">Remove</button>
+                </div>
+            `).join('');
+
+            document.getElementById('cart-total').innerText = '$' + total.toFixed(2);
+        }
+
+        function goBackToBrowse() {
+            currentPage = 'browse';
+            updateSteps();
+            document.getElementById('browse-section').style.display = 'block';
+            document.getElementById('cart-section').style.display = 'none';
+            document.getElementById('checkout-section').style.display = 'none';
+            document.getElementById('success-section').style.display = 'none';
+
+            Pulse.track('browse_continue', {
+                cart_items: cart.length
+            });
+        }
+
+        function removeFromCart(index) {
+            const item = cart[index];
+            Pulse.track('remove_from_cart', {
+                product_name: item.productName,
+                price: item.price
+            });
+            cart.splice(index, 1);
+            goToCart();
+        }
+
+        function goToCheckout() {
+            if (cart.length === 0) {
+                alert('Please add items to your cart first!');
+                return;
+            }
+
+            currentPage = 'checkout';
+            updateSteps();
+            document.getElementById('browse-section').style.display = 'none';
+            document.getElementById('cart-section').style.display = 'none';
+            document.getElementById('checkout-section').style.display = 'block';
+            document.getElementById('success-section').style.display = 'none';
+
+            const total = cart.reduce((sum, item) => sum + item.price, 0);
+            document.getElementById('checkout-total').innerText = '$' + total.toFixed(2);
+
+            Pulse.track('begin_checkout', {
+                cart_items: cart.length,
+                total_value: total
+            });
+        }
+
+        function goBackToCart() {
+            currentPage = 'cart';
+            updateSteps();
+            goToCart();
+        }
+
+        function completePurchase() {
+            const total = cart.reduce((sum, item) => sum + item.price, 0);
+            const orderId = 'ORD-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+
+            Pulse.track('purchase', {
+                order_id: orderId,
+                total_value: total,
+                items_count: cart.length,
+                items: cart.map(i => i.productName).join(', ')
+            });
+
+            currentPage = 'success';
+            updateSteps();
+            document.getElementById('browse-section').style.display = 'none';
+            document.getElementById('cart-section').style.display = 'none';
+            document.getElementById('checkout-section').style.display = 'none';
+            document.getElementById('success-section').style.display = 'block';
+            document.getElementById('order-id').innerText = orderId;
+
+            console.log('Purchase complete! Order ID:', orderId);
+            Pulse.flush(); // Ensure purchase event is sent
+        }
+
+        function resetStore() {
+            cart = [];
+            currentUser = generateUserId();
+            currentPage = 'browse';
+            updateSteps();
+            document.getElementById('browse-section').style.display = 'block';
+            document.getElementById('cart-section').style.display = 'none';
+            document.getElementById('checkout-section').style.display = 'none';
+            document.getElementById('success-section').style.display = 'none';
+
+            Pulse.identify(currentUser);
+            Pulse.track('page_view', { page: 'shop' });
+        }
+
+        function updateSteps() {
+            document.getElementById('step-browse').classList.toggle('active', currentPage === 'browse');
+            document.getElementById('step-cart').classList.toggle('active', currentPage === 'cart');
+            document.getElementById('step-checkout').classList.toggle('active', currentPage === 'checkout');
+            document.getElementById('step-purchase').classList.toggle('active', currentPage === 'success');
+        }
+
+        // Flush events before leaving
+        window.addEventListener('beforeunload', () => {
+            Pulse.flush();
+        });
+    </script>
+</body>
+</html>
