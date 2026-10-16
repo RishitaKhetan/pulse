@@ -42,7 +42,7 @@ Opens `http://localhost:4747` automatically. Stop with `Ctrl+C`.
 pulse init
 ```
 
-Creates `~/.pulse/config.json` with default settings. Edit to customize port or data directory.
+Creates `~/.pulse/config.json` with default settings. Edit to customize the port, data directory, or whether the browser opens. Command-line flags (like `--port`) override the config file.
 
 ### 3. Send events
 

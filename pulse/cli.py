@@ -9,31 +9,63 @@ from pathlib import Path
 
 from pulse.server import DEFAULT_DATA_DIR, run_server
 
+DEFAULT_PORT = 4747
+
+
+def config_path() -> Path:
+    """Where `pulse init` saves settings: ~/.pulse/config.json"""
+    return Path.home() / ".pulse" / "config.json"
+
+
+def load_config() -> dict:
+    """Read the config file if it exists. Missing or broken file -> empty dict (use defaults)."""
+    path = config_path()
+    if not path.exists():
+        return {}
+    try:
+        return json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        print(f"[WARN] Could not read {path}, using default settings")
+        return {}
+
+
+def resolve_data_dir(args, config: dict) -> Path:
+    """Pick the data folder: --data-dir flag first, then config file, then the default."""
+    if args.data_dir is not None:
+        return args.data_dir
+    return Path(config.get("data_dir", DEFAULT_DATA_DIR)).expanduser()
+
 
 def cmd_start(args):
     """Start the Pulse server and open the dashboard."""
-    run_server(port=args.port, open_browser=not args.no_browser, data_dir=args.data_dir)
+    config = load_config()
+    # Each setting: command-line flag wins, then config file, then built-in default
+    port = args.port if args.port is not None else config.get("port", DEFAULT_PORT)
+    open_browser = False if args.no_browser else config.get("open_browser", True)
+    data_dir = resolve_data_dir(args, config)
+    run_server(port=port, open_browser=open_browser, data_dir=data_dir)
 
 
 def cmd_reset(args):
     """Clear all event data."""
-    if not args.data_dir.exists():
-        print(f"No data to reset at {args.data_dir}")
+    # Use the same folder `pulse start` uses, so reset clears the right data
+    data_dir = resolve_data_dir(args, load_config())
+    if not data_dir.exists():
+        print(f"No data to reset at {data_dir}")
         return
 
-    shutil.rmtree(args.data_dir)
-    print(f"[OK] Cleared all data from {args.data_dir}")
+    shutil.rmtree(data_dir)
+    print(f"[OK] Cleared all data from {data_dir}")
 
 
 def cmd_init(args):
     """Initialize Pulse configuration."""
-    config_dir = Path.home() / ".pulse"
-    config_dir.mkdir(parents=True, exist_ok=True)
-    config_file = config_dir / "config.json"
+    config_file = config_path()
+    config_file.parent.mkdir(parents=True, exist_ok=True)
 
     default_config = {
         "data_dir": str(DEFAULT_DATA_DIR),
-        "port": 4747,
+        "port": DEFAULT_PORT,
         "open_browser": True,
     }
 
@@ -52,7 +84,8 @@ def cmd_demo_data(args):
     from pulse.models import Event
     from pulse.storage import EventStore
 
-    store = EventStore(data_dir=args.data_dir)
+    data_dir = resolve_data_dir(args, load_config())
+    store = EventStore(data_dir=data_dir)
     store.start()
 
     # Sample data
@@ -90,7 +123,7 @@ def cmd_demo_data(args):
     store.flush()
     store.stop()
 
-    print(f"[OK] Generated {len(events)} sample events at {args.data_dir}")
+    print(f"[OK] Generated {len(events)} sample events at {data_dir}")
 
 
 def main():
@@ -105,16 +138,16 @@ def main():
         "start", help="Start the local Pulse server and open the dashboard"
     )
     start_parser.add_argument(
-        "--port", type=int, default=4747,
-        help="Port to run Pulse on (default: 4747)",
+        "--port", type=int, default=None,
+        help="Port to run Pulse on (default: config file, else 4747)",
     )
     start_parser.add_argument(
         "--no-browser", action="store_true",
         help="Don't automatically open the dashboard in a browser",
     )
     start_parser.add_argument(
-        "--data-dir", type=Path, default=DEFAULT_DATA_DIR,
-        help=f"Directory to store event data (default: {DEFAULT_DATA_DIR})",
+        "--data-dir", type=Path, default=None,
+        help=f"Directory to store event data (default: config file, else {DEFAULT_DATA_DIR})",
     )
     start_parser.set_defaults(func=cmd_start)
 
@@ -123,8 +156,8 @@ def main():
         "reset", help="Clear all event data"
     )
     reset_parser.add_argument(
-        "--data-dir", type=Path, default=DEFAULT_DATA_DIR,
-        help=f"Directory to clear (default: {DEFAULT_DATA_DIR})",
+        "--data-dir", type=Path, default=None,
+        help=f"Directory to clear (default: config file, else {DEFAULT_DATA_DIR})",
     )
     reset_parser.set_defaults(func=cmd_reset)
 
@@ -139,8 +172,8 @@ def main():
         "demo-data", help="Populate dashboard with sample events"
     )
     demo_parser.add_argument(
-        "--data-dir", type=Path, default=DEFAULT_DATA_DIR,
-        help=f"Directory to store demo data (default: {DEFAULT_DATA_DIR})",
+        "--data-dir", type=Path, default=None,
+        help=f"Directory to store demo data (default: config file, else {DEFAULT_DATA_DIR})",
     )
     demo_parser.set_defaults(func=cmd_demo_data)
 

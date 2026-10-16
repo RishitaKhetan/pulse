@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from pulse.cli import cmd_demo_data, cmd_init, cmd_reset
+from pulse.cli import cmd_demo_data, cmd_init, cmd_reset, cmd_start
 
 
 class TestCmdReset:
@@ -68,6 +68,56 @@ class TestCmdInit:
             # Config should not be overwritten
             data = json.loads(config_file.read_text())
             assert data["port"] == 5000
+
+
+class TestCmdStartConfig:
+    """`pulse start` should read ~/.pulse/config.json, but flags still win."""
+
+    def _run_start(self, home, port=None, no_browser=False, data_dir=None):
+        # Fake the home folder and capture what run_server is called with
+        class Args:
+            pass
+        args = Args()
+        args.port, args.no_browser, args.data_dir = port, no_browser, data_dir
+
+        with patch("pulse.cli.Path.home", return_value=home), \
+             patch("pulse.cli.run_server") as fake_run:
+            cmd_start(args)
+        return fake_run.call_args.kwargs
+
+    def test_uses_defaults_without_config(self, tmp_path):
+        settings = self._run_start(tmp_path)
+        assert settings["port"] == 4747
+        assert settings["open_browser"] is True
+
+    def test_uses_config_file(self, tmp_path):
+        config_file = tmp_path / ".pulse" / "config.json"
+        config_file.parent.mkdir()
+        config_file.write_text(json.dumps({
+            "port": 5000, "open_browser": False, "data_dir": str(tmp_path / "mydata"),
+        }))
+
+        settings = self._run_start(tmp_path)
+        assert settings["port"] == 5000
+        assert settings["open_browser"] is False
+        assert settings["data_dir"] == tmp_path / "mydata"
+
+    def test_flags_override_config(self, tmp_path):
+        config_file = tmp_path / ".pulse" / "config.json"
+        config_file.parent.mkdir()
+        config_file.write_text(json.dumps({"port": 5000, "open_browser": True}))
+
+        settings = self._run_start(tmp_path, port=6000, no_browser=True)
+        assert settings["port"] == 6000
+        assert settings["open_browser"] is False
+
+    def test_broken_config_falls_back_to_defaults(self, tmp_path):
+        config_file = tmp_path / ".pulse" / "config.json"
+        config_file.parent.mkdir()
+        config_file.write_text("{ not valid json")
+
+        settings = self._run_start(tmp_path)
+        assert settings["port"] == 4747
 
 
 class TestCmdDemoData:
