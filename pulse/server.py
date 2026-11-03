@@ -73,8 +73,11 @@ def _is_sdk_door(method: str, path: str) -> bool:
 
 
 def create_app(data_dir: Path) -> FastAPI:
-    store = EventStore(data_dir=data_dir)
-    query = QueryEngine(data_dir=data_dir)
+    # One shared "key" for the event files: saving, merging and querying each
+    # hold it, so a chart never reads files while they're being merged
+    files_lock = threading.Lock()
+    store = EventStore(data_dir=data_dir, files_lock=files_lock)
+    query = QueryEngine(data_dir=data_dir, files_lock=files_lock)
     exp_store = ExperimentStore(data_dir=data_dir)
 
     @asynccontextmanager

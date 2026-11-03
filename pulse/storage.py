@@ -10,6 +10,7 @@ import duckdb
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+from pulse.compaction import compact_if_needed, recover
 from pulse.models import Event
 
 _SCHEMA = pa.schema([
@@ -23,15 +24,26 @@ _SCHEMA = pa.schema([
 
 
 class EventStore:
-    def __init__(self, data_dir: Path, flush_interval: int = 30):
+    def __init__(
+        self,
+        data_dir: Path,
+        flush_interval: int = 30,
+        files_lock: threading.Lock | None = None,
+    ):
         self._data_dir = data_dir
         self._flush_interval = flush_interval
         self._buffer: deque[Event] = deque(maxlen=50_000)
-        self._lock = threading.Lock()
+        self._lock = threading.Lock()  # protects the in-memory buffer
+        # Held while writing or merging files on disk. Shared with QueryEngine
+        # so a query never sees files half-merged.
+        self._files_lock = files_lock or threading.Lock()
         self._timer: threading.Timer | None = None
 
     def start(self) -> None:
         self._data_dir.mkdir(parents=True, exist_ok=True)
+        # Clean up if Pulse crashed in the middle of merging files last time
+        with self._files_lock:
+            recover(self._data_dir)
         atexit.register(self.flush)
         self._schedule_flush()
 
@@ -84,7 +96,8 @@ class EventStore:
             },
             schema=_SCHEMA,
         )
-        pq.write_table(table, path)
+        with self._files_lock:
+            pq.write_table(table, path)
 
     def _schedule_flush(self) -> None:
         self._timer = threading.Timer(self._flush_interval, self._flush_and_reschedule)
@@ -92,17 +105,26 @@ class EventStore:
         self._timer.start()
 
     def _flush_and_reschedule(self) -> None:
-        self.flush()
-        self._schedule_flush()
+        try:
+            self.flush()
+            # Merge small files now and then, so queries stay fast over time
+            compact_if_needed(self._data_dir, self._files_lock)
+        except Exception as e:
+            # Never let a disk problem stop the timer for good
+            print(f"[WARN] Pulse could not save or tidy event files: {e}")
+        finally:
+            self._schedule_flush()
 
 
 class QueryEngine:
     """Read-only DuckDB query layer over the Parquet event store."""
 
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, files_lock: threading.Lock | None = None):
         self._data_dir = data_dir
         self._conn = duckdb.connect()
-        self._lock = threading.Lock()
+        # Held while a query runs. When shared with EventStore, files can't be
+        # merged or added in the middle of a query.
+        self._lock = files_lock or threading.Lock()
 
     def _glob(self) -> str:
         return str(self._data_dir / "**" / "*.parquet").replace("\\", "/")
