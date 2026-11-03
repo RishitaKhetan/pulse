@@ -50,6 +50,41 @@ class TestEventStore:
 
         store.stop()
 
+    def test_two_flushes_in_same_second_keep_all_events(self, temp_data_dir, monkeypatch):
+        # Bug 1: two saves within the same second used to get the same file
+        # name, so the second file overwrote the first and events were lost.
+        from datetime import datetime, timezone
+
+        import pulse.storage
+        from pulse.storage import QueryEngine
+
+        # Freeze the clock so both saves happen at exactly the same moment
+        frozen = datetime(2026, 11, 3, 14, 0, 0, tzinfo=timezone.utc)
+
+        class FrozenDatetime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return frozen
+
+        monkeypatch.setattr(pulse.storage, "datetime", FrozenDatetime)
+
+        store = EventStore(data_dir=temp_data_dir)
+        store.start()
+
+        store.add(Event(event_name="first", user_id="alice"))
+        store.flush()
+        store.add(Event(event_name="second", user_id="bob"))
+        store.flush()
+        store.stop()
+
+        # Both saves must produce their own file...
+        parquet_files = list(temp_data_dir.glob("*/*.parquet"))
+        assert len(parquet_files) == 2
+
+        # ...and both events must still be readable
+        names = {row["event_name"] for row in QueryEngine(temp_data_dir).event_counts()}
+        assert names == {"first", "second"}
+
 
 class TestFunnelDetection:
     def test_detect_funnel_patterns(self, temp_data_dir):

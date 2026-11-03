@@ -4,15 +4,39 @@ import time
 import webbrowser
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import Body, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from pydantic import ValidationError
 
 from pulse.experiments import ExperimentStore
 from pulse.models import Event, Experiment, FunnelRequest
 from pulse.storage import EventStore, QueryEngine
+
+
+def _check_events(items: list[Any]) -> tuple[list[Event], list[dict]]:
+    """Check each event on its own: keep the good ones, report the bad ones.
+
+    Returns (good_events, rejected) where each rejected entry says which
+    position in the batch was bad and why, e.g.
+    {"index": 2, "error": "event_name: Field required"}.
+    """
+    good: list[Event] = []
+    rejected: list[dict] = []
+    for index, item in enumerate(items):
+        try:
+            good.append(Event.model_validate(item))
+        except ValidationError as e:
+            # Turn pydantic's error list into one short readable sentence
+            reasons = []
+            for err in e.errors():
+                field = ".".join(str(part) for part in err["loc"])
+                reasons.append(f"{field}: {err['msg']}" if field else err["msg"])
+            rejected.append({"index": index, "error": "; ".join(reasons)})
+    return good, rejected
 
 
 def _z_test_p_value(n1: int, c1: int, n2: int, c2: int) -> float | None:
@@ -73,9 +97,12 @@ def create_app(data_dir: Path) -> FastAPI:
         return {"received": 1}
 
     @app.post("/events/batch", status_code=201)
-    def ingest_events(events: list[Event]) -> dict:
-        store.add_many(events)
-        return {"received": len(events)}
+    def ingest_events(events: list[Any] = Body(...)) -> dict:
+        # Accept the batch as a plain list and check each event separately,
+        # so one broken event doesn't make us throw away the good ones.
+        good, rejected = _check_events(events)
+        store.add_many(good)
+        return {"received": len(good), "rejected": rejected}
 
     @app.get("/events")
     def list_events(limit: int = 50) -> list[Event]:

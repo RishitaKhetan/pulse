@@ -4,6 +4,7 @@ import threading
 from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
 
 import duckdb
 import pyarrow as pa
@@ -65,7 +66,9 @@ class EventStore:
         now = datetime.now(timezone.utc)
         day_dir = self._data_dir / now.strftime("%Y-%m-%d")
         day_dir.mkdir(parents=True, exist_ok=True)
-        path = day_dir / now.strftime(f"%H_{int(now.timestamp())}.parquet")
+        # Add a random code so two saves in the same second never get the
+        # same file name (otherwise the second file would overwrite the first)
+        path = day_dir / f"{now:%H}_{int(now.timestamp())}_{uuid4().hex}.parquet"
 
         table = pa.table(
             {
