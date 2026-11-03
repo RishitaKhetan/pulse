@@ -1,4 +1,3 @@
-import math
 import threading
 import time
 import webbrowser
@@ -11,7 +10,7 @@ from fastapi import Body, FastAPI, HTTPException, Response
 from fastapi.responses import HTMLResponse
 from pydantic import ValidationError
 
-from pulse.experiments import ExperimentStore
+from pulse.experiments import ExperimentStore, analyze_results
 from pulse.models import Event, Experiment, FunnelRequest
 from pulse.storage import EventStore, QueryEngine
 
@@ -37,18 +36,6 @@ def _check_events(items: list[Any]) -> tuple[list[Event], list[dict]]:
             rejected.append({"index": index, "error": "; ".join(reasons)})
     return good, rejected
 
-
-def _z_test_p_value(n1: int, c1: int, n2: int, c2: int) -> float | None:
-    if n1 < 1 or n2 < 1 or (c1 + c2) == 0:
-        return None
-    p_pool = (c1 + c2) / (n1 + n2)
-    if p_pool in (0.0, 1.0):
-        return None
-    se = math.sqrt(p_pool * (1 - p_pool) * (1 / n1 + 1 / n2))
-    if se == 0:
-        return None
-    z = abs(c1 / n1 - c2 / n2) / se
-    return float(math.erfc(z / math.sqrt(2)))
 
 STATIC_DIR = Path(__file__).parent / "static"
 DEFAULT_DATA_DIR = Path.home() / ".pulse" / "data" / "events"
@@ -232,36 +219,13 @@ def create_app(data_dir: Path) -> FastAPI:
         # Save buffered events first so brand-new assignments/conversions count
         store.flush()
         rows = query.experiment_results(name, exp.goal_event)
-        variant_results = [
-            {
-                "variant": r["variant"],
-                "users": r["users"],
-                "conversions": r["conversions"],
-                "conversion_rate": round(r["conversions"] / r["users"], 4) if r["users"] > 0 else 0.0,
-            }
-            for r in rows
-        ]
-
-        p_value = None
-        significant = False
-        winner = None
-
-        if len(variant_results) == 2:
-            v1, v2 = variant_results
-            p_value = _z_test_p_value(v1["users"], v1["conversions"], v2["users"], v2["conversions"])
-            if p_value is not None:
-                significant = p_value < 0.05
-                if significant:
-                    winner = max(variant_results, key=lambda v: v["conversion_rate"])["variant"]
-
+        # Difference, 95% range, winner and a plain-English summary
+        analysis = analyze_results(exp, rows)
         return {
             "experiment": name,
             "goal_event": exp.goal_event,
             "status": exp.status,
-            "variants": variant_results,
-            "p_value": round(p_value, 4) if p_value is not None else None,
-            "significant": significant,
-            "winner": winner,
+            **analysis,
         }
 
     return app

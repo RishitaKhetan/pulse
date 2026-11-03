@@ -192,3 +192,20 @@ class TestFirstFiveMinutes:
         assert "Send a test event" in page
         assert "REFRESH_EVERY_MS = 5000" in page  # D: refresh every 5 seconds
         assert 'id="refresh-button"' in page
+
+
+class TestExperimentReport:
+    def test_results_endpoint_has_summary_and_range(self, temp_data_dir):
+        with make_client(temp_data_dir) as client:
+            client.post("/experiments", json={"name": "btn", "goal_event": "signup"})
+            for i in range(80):
+                variant = client.get(f"/experiments/btn/assign?user_id=u{i}").json()["variant"]
+                if variant == "treatment" or i % 4 == 0:
+                    client.post("/events/batch", json=[{"event_name": "signup", "user_id": f"u{i}"}])
+            res = client.get("/experiments/btn/results").json()
+
+        assert isinstance(res["summary"], str) and res["summary"]
+        assert len(res["comparisons"]) == 1
+        comp = res["comparisons"][0]
+        assert comp["ci_low"] <= comp["difference"] <= comp["ci_high"]
+        assert {"variants", "p_value", "significant", "winner"} <= res.keys()

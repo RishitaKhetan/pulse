@@ -83,9 +83,9 @@ You don't need to do anything special. The SDKs collect events and send them in 
 | | Sends a batch when... | Also sends when... |
 |---|---|---|
 | **JavaScript** | 10 events are waiting, or 3 seconds after an event | the tab is hidden or closed |
-| **Python** | 20 events are waiting, or 5 seconds after an event | your program exits |
+| **Python** | 100 events are waiting, or every 5 seconds | your program exits |
 
-Call `Pulse.flush()` / `pulse.flush()` to send right away. If Pulse isn't running, the SDKs quietly drop the events and never crash your app.
+Call `Pulse.flush()` / `pulse.flush()` to send right away. The SDKs never crash your app. If Pulse isn't running, the JS SDK drops that batch; the Python SDK keeps up to 10,000 events and retries until Pulse is back.
 
 The server keeps incoming events in memory and saves them to disk every 30 seconds, and whenever the dashboard asks for data.
 
@@ -160,7 +160,14 @@ const variant = await Pulse.experiment("signup_button", "alice");
 pulse.track("signup", user_id="alice")
 ```
 
-**4. See the results** in the dashboard's Experiments card, or at `GET /experiments/signup_button/results`. You get, per variant: users, conversions and conversion rate, plus a p-value, whether the difference is statistically significant (95% confidence), and the winner if there is one.
+**4. See the results** in the dashboard's Experiments card, or at `GET /experiments/signup_button/results`. You get:
+
+- per variant: users, conversions and conversion rate (the first variant is the "control")
+- for every other variant: the difference from control plus a **95% confidence range** (bootstrap, 2,000 replays)
+- a **plain-English summary**, for example:
+  > red converts better than blue: 12.0% vs 10.0% (+2.0 points). We're 95% sure the real difference is between +1.6 points and +2.4 points.
+- the `winner`, only when the whole range is above (or below) zero, and nothing is declared while any variant has fewer than 30 users
+- the classic `p_value` (two variants only), for those who want it
 
 ## CLI commands
 
@@ -211,8 +218,21 @@ To back up, copy the folder. To start fresh, run `pulse reset`.
 Measured on 1 million local events:
 
 - Event counts: about 0.05 seconds
-- Funnel: about 0.2 seconds
+- Funnel: about 0.2 to 0.5 seconds
 - Funnel suggestions: about 0.4 seconds
+- Experiment report (100,000 users, with statistics): about 0.2 seconds
+
+SDK cost: one `pulse.track()` / `Pulse.track()` takes a few microseconds; on an app doing about 2 ms of work per request, the overhead stays under 2%.
+
+Small files are merged into one file per day automatically, so queries stay fast over time.
+
+Re-run the measurements yourself:
+
+```bash
+python benchmarks/experiment_report.py
+python benchmarks/sdk_overhead.py
+node benchmarks/sdk_overhead_js.js
+```
 
 ## Troubleshooting
 
@@ -227,7 +247,7 @@ Measured on 1 million local events:
 - Send a test event with the `curl` command above. If it shows up, Pulse works and the problem is in your app's tracking code.
 
 **My app crashed. Did I lose events?**
-- Events still waiting in the SDK (up to 3 or 5 seconds' worth) can be lost. Call `flush()` after important events like purchases.
+- Events still waiting in the SDK (a few seconds' worth) can be lost if the whole program crashes. Call `flush()` after important events like purchases.
 
 ## Tech stack
 

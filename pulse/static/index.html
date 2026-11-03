@@ -557,17 +557,31 @@
           html += '<p style="color:#adb5bd;font-size:13px;">No assignment data yet</p>';
         } else {
           const winner = r.winner;
+          // "vs control" column: difference and 95% range, e.g. "+6.0 pts (+1.2 to +10.8)"
+          const points = x => `${x >= 0 ? '+' : ''}${(Number(x) * 100).toFixed(1)}`;
+          const vsControl = {};
+          (r.comparisons || []).forEach(c => {
+            vsControl[c.variant] = `${points(c.difference)} pts (${points(c.ci_low)} to ${points(c.ci_high)})`;
+          });
+
+          // The plain-English summary goes first, in green when there's a winner
+          html += `<p style="font-size:14px;line-height:1.5;margin-bottom:14px;padding:12px 14px;border-radius:8px;
+              background:${winner ? '#d8f3dc' : '#f8f9fa'};color:${winner ? '#2d6a4f' : '#495057'};">
+              ${escapeHtml(r.summary)}
+            </p>`;
+
           html += `<table>
             <thead><tr>
-              <th>Variant</th><th>Users</th><th>Conversions</th><th>Rate</th><th></th>
+              <th>Variant</th><th>Users</th><th>Conversions</th><th>Rate</th><th>vs control (95% range)</th><th></th>
             </tr></thead>
             <tbody>
-              ${r.variants.map(v => `
+              ${r.variants.map((v, i) => `
                 <tr>
-                  <td><strong>${escapeHtml(v.variant)}</strong></td>
+                  <td><strong>${escapeHtml(v.variant)}</strong>${i === 0 ? ' <span style="color:#adb5bd;font-size:12px;">control</span>' : ''}</td>
                   <td>${escapeHtml(v.users)}</td>
                   <td>${escapeHtml(v.conversions)}</td>
                   <td>${escapeHtml((Number(v.conversion_rate) * 100).toFixed(1))}%</td>
+                  <td>${vsControl[v.variant] ? escapeHtml(vsControl[v.variant]) : '—'}</td>
                   <td>${winner === v.variant
                     ? '<span style="background:#d8f3dc;color:#2d6a4f;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">winner</span>'
                     : ''}</td>
@@ -576,16 +590,11 @@
             </tbody>
           </table>`;
 
+          // The classic p-value stays available, but small, for those who want it
           if (r.p_value !== null) {
-            const sig = r.significant;
-            html += `<p style="margin-top:10px;font-size:12px;color:#6c757d;">
-              p-value: <strong>${escapeHtml(r.p_value)}</strong> —
-              <span style="color:${sig ? '#2d6a4f' : '#6c757d'};">
-                ${sig ? 'statistically significant (95% confidence)' : 'not yet significant'}
-              </span>
+            html += `<p style="margin-top:10px;font-size:12px;color:#adb5bd;">
+              p-value: ${escapeHtml(r.p_value)}
             </p>`;
-          } else {
-            html += `<p style="margin-top:10px;font-size:12px;color:#adb5bd;">Not enough data for significance test</p>`;
           }
         }
         html += '</div>';

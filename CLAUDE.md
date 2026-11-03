@@ -44,9 +44,10 @@ Your app (with Pulse SDK)
 - **Backend:** Python 3.10+, FastAPI, uvicorn
 - **Storage:** Parquet files on disk (the files ARE the database), written with pyarrow (or polars)
 - **Querying:** DuckDB, reading the Parquet folder directly
-- **Dashboard:** React, built once and served as static files by the same server. No separate dev server when a user runs Pulse. (Superset/Metabase from the original brief are dropped because they need their own setup.)
-- **TypeScript SDK:** for frontends. Buffers events and sends them in batches.
-- **Python SDK:** for backends. Same idea, same event format.
+- **Dashboard:** one plain HTML page (`pulse/static/index.html`) with Chart.js, served by the same server. Chart.js is bundled in `pulse/static/` so it works offline. No build step, no separate dev server. (React was the original plan but was not needed; Superset/Metabase from the original brief are dropped because they need their own setup.)
+- **JavaScript SDK:** for frontends (`pulse/static/pulse.js`, loaded with a `<script>` tag). Buffers events and sends them in batches.
+- **Python SDK:** for backends (`pulse/sdk.py`, `import pulse`). One background thread, batches of 100, retries when Pulse is unreachable.
+- **numpy:** only for the experiment confidence range (bootstrap).
 - **CI:** GitHub Actions (run tests on push)
 
 ## Out of scope (do NOT build)
@@ -57,37 +58,39 @@ Every event has these fields:
 
 | Field | Meaning |
 |---|---|
-| `timestamp` | when it happened (UTC, ISO format) |
-| `actor` | who did it (user id, anonymous id, or service name) |
-| `entity` | what it was done to (page, button, order, etc.) |
-| `action` | what happened (click, view, purchase, etc.) |
-| `metadata` | extra details as a JSON object |
+| `event_name` | what happened (page_view, click, purchase, etc.). The only required field. |
+| `user_id` | who did it (user id, anonymous id, or service name) |
+| `session_id` | which visit it belongs to (set by the SDKs) |
+| `timestamp` | when it happened (UTC, ISO format; defaults to now) |
+| `properties` | extra details as a JSON object (e.g. which page or button) |
+| `event_id` | unique id, filled in automatically |
+
+(The original brief used `actor / entity / action / metadata`. The code has used the
+names above since Phase 1: `actor` = `user_id`, `action` = `event_name`, and
+`entity` + `metadata` both live in `properties`.)
 
 Keep this format stable. If it must change, tell me why first.
 
-## Planned folder layout
+## Folder layout (actual)
 ```
 pulse/
   CLAUDE.md
   pyproject.toml
   README.md
   pulse/                  <- Python package
-    __init__.py
-    cli.py                <- the `pulse` command
-    server.py             <- FastAPI app
-    schema.py             <- event format + validation
-    ingest.py             <- receives events, writes Parquet
-    storage.py            <- where/how Parquet files are laid out
-    query.py              <- DuckDB queries (counts, funnels, retention)
-    experiments.py        <- A/B test assignment + analysis
-    static/               <- built dashboard files
-  dashboard/              <- React source code
-  sdk-js/                 <- TypeScript SDK
-  sdk-python/             <- Python SDK (or pulse/sdk/)
-  examples/sample-app/    <- tiny demo app that sends events
+    __init__.py           <- exposes the Python SDK: pulse.init / track / experiment / flush
+    cli.py                <- the `pulse` command (start, init, reset, demo-data)
+    server.py             <- FastAPI app: ingest, analytics, experiments, serves dashboard
+    models.py             <- event + experiment format and validation (pydantic)
+    storage.py            <- buffer -> Parquet files per day, and DuckDB queries
+    compaction.py         <- merges each day's small Parquet files into one
+    experiments.py        <- A/B assignment + analysis (bootstrap range, summary)
+    sdk.py                <- Python SDK
+    static/               <- dashboard (index.html), JS SDK (pulse.js), Chart.js
+  examples/sample-shop/   <- demo shop that sends events with the JS SDK
+  benchmarks/             <- speed checks for the success targets
   tests/
 ```
-This is a guide, not a strict rule. If a simpler layout works better, suggest it.
 
 ## Phases
 
@@ -157,11 +160,15 @@ Thompson Sampling (bandit) helper, feature store (key-value online + offline Par
 - If something in this file seems wrong or outdated, tell me and suggest an update instead of silently working around it.
 
 ## Progress
-- [ ] Phase 0: Skeleton
-- [ ] Phase 1: Event pipeline
-- [ ] Phase 2: Query layer
-- [ ] Phase 3: Dashboard
-- [ ] Phase 4: SDKs
-- [ ] Phase 5: Experiment engine
-- [ ] Phase 6: Packaging and polish
+- [x] Phase 0: Skeleton
+- [x] Phase 1: Event pipeline
+- [x] Phase 2: Query layer (1M events: counts ~0.05 s, funnel ~0.2-0.5 s)
+- [x] Phase 3: Dashboard (HTML + Chart.js instead of React; welcome screen, offline)
+- [x] Phase 4: SDKs (JS + Python; overhead under 2%, see benchmarks/)
+- [x] Phase 5: Experiment engine (report ~0.2 s for 100k users, bootstrap range + summary)
+- [x] Phase 6: Packaging and polish (wheel includes dashboard; not uploaded to PyPI yet)
 - [ ] Stretch goals
+
+Ideas for later (not stretch goals yet): funnel suggestion buttons, create experiments
+from the dashboard, `identify()` in the Python SDK, real "Active Users" count (capped at
+10 now), date filter, richer demo data, SQL box, show rejected events, sample shop tidy-ups.

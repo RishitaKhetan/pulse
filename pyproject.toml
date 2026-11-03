@@ -21,6 +21,7 @@ dependencies = [
     "uvicorn",
     "pyarrow",
     "duckdb",
+    "numpy",  # fast random "replays" for the experiment confidence range
 ]
 
 [project.optional-dependencies]
