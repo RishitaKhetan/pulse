@@ -61,3 +61,28 @@ class TestBatchIngest:
             res = client.post("/events/batch", json={"event_name": "page_view"})
 
         assert res.status_code == 422
+
+
+class TestStaticFiles:
+    def test_dashboard_text_is_not_garbled(self, temp_data_dir):
+        # Bug 6: on Windows the dashboard was read with the wrong "alphabet",
+        # so a dash like — showed up as â€”
+        from pulse.server import STATIC_DIR
+
+        with make_client(temp_data_dir) as client:
+            res = client.get("/")
+
+        assert res.status_code == 200
+        expected = (STATIC_DIR / "index.html").read_bytes().decode("utf-8")
+        assert res.text == expected
+        assert "â€" not in res.text
+
+    def test_js_sdk_is_served(self, temp_data_dir):
+        from pulse.server import STATIC_DIR
+
+        with make_client(temp_data_dir) as client:
+            res = client.get("/pulse.js")
+
+        assert res.status_code == 200
+        assert "javascript" in res.headers["content-type"]
+        assert res.text == (STATIC_DIR / "pulse.js").read_bytes().decode("utf-8")

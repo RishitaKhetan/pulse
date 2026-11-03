@@ -78,12 +78,14 @@ def create_app(data_dir: Path) -> FastAPI:
 
     @app.get("/", response_class=HTMLResponse)
     def read_root():
-        return (STATIC_DIR / "index.html").read_text()
+        # Say "utf-8" explicitly: on Windows Python otherwise guesses a different
+        # alphabet (cp1252) and characters like — turn into â€”
+        return (STATIC_DIR / "index.html").read_text(encoding="utf-8")
 
     @app.get("/pulse.js")
     def serve_sdk():
         return Response(
-            content=(STATIC_DIR / "pulse.js").read_text(),
+            content=(STATIC_DIR / "pulse.js").read_text(encoding="utf-8"),
             media_type="application/javascript",
         )
 
@@ -152,9 +154,9 @@ def create_app(data_dir: Path) -> FastAPI:
         return query.retention()
 
     @app.get("/analytics/funnel-suggestions")
-    def analytics_funnel_suggestions(max_depth: int = 4, min_users: int = 2):
+    def analytics_funnel_suggestions(max_depth: int = 4, min_users: int = 2, limit: int = 20):
         store.flush()
-        suggestions = query.detect_funnel_patterns(max_depth, min_users)
+        suggestions = query.detect_funnel_patterns(max_depth, min_users, limit)
         return {"suggestions": suggestions}
 
     @app.post("/experiments", status_code=201)

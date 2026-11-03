@@ -315,51 +315,83 @@ class QueryEngine:
             for r in rows
         ]
 
-    def detect_funnel_patterns(self, max_depth: int = 4, min_users: int = 2) -> list[dict]:
-        # Auto-detect common event sequences (funnels) from user behavior
+    def detect_funnel_patterns(
+        self, max_depth: int = 4, min_users: int = 2, limit: int = 20
+    ) -> list[dict]:
+        """Suggest common paths through the app, e.g. home -> pricing -> signup.
+
+        Looks at each user's events in time order and finds short back-to-back
+        paths (2 to max_depth steps). Each path is counted once per PERSON, so
+        someone repeating a path many times still counts as one, and the rate
+        can never go above 100%. All the counting happens inside DuckDB.
+        """
         if not self._has_data():
             return []
 
+        # Keep the query a sensible size: paths of 2 to 10 steps
+        max_depth = max(2, min(int(max_depth), 10))
         glob = self._glob()
+        cols = [f"e{k}" for k in range(max_depth)]  # e0 = this step, e1 = next, ...
 
-        # Get all events per user, ordered by timestamp
+        # For each event, also grab the next few events by the same user.
+        # LEAD(e, 1) = "what this user did next", LEAD(e, 2) = "the one after", ...
+        next_steps = ", ".join(
+            f"LEAD(e, {k}) OVER by_user AS e{k}" for k in range(1, max_depth)
+        )
+
+        # One row per path length. Shorter paths fill the unused columns with NULL,
+        # e.g. a 2-step path is (e0, e1, NULL, NULL).
+        paths = " UNION ALL ".join(
+            f"SELECT u, {length} AS len, "
+            + ", ".join(c if k < length else f"NULL::INTEGER AS {c}" for k, c in enumerate(cols))
+            + f" FROM with_next WHERE e{length - 1} IS NOT NULL"
+            for length in range(2, max_depth + 1)
+        )
+
+        # Speed trick: before counting, swap text for numbers (user id -> hash
+        # number, event name -> small id). Comparing numbers is much faster than
+        # comparing text, which keeps this well under 1 s on 1M events.
         rows = self._run(f"""
-            SELECT user_id, event_name
-            FROM read_parquet('{glob}', union_by_name=true)
-            WHERE user_id IS NOT NULL
-            ORDER BY user_id, timestamp
+            WITH events AS (
+                SELECT user_id, event_name, timestamp, event_id
+                FROM read_parquet('{glob}', union_by_name=true)
+                WHERE user_id IS NOT NULL
+            ),
+            names AS (
+                SELECT event_name, CAST(ROW_NUMBER() OVER (ORDER BY event_name) - 1 AS INTEGER) AS id
+                FROM (SELECT DISTINCT event_name FROM events)
+            ),
+            coded AS (
+                SELECT hash(user_id) AS u, names.id AS e, timestamp, event_id
+                FROM events JOIN names USING (event_name)
+            ),
+            with_next AS MATERIALIZED (
+                SELECT u, e AS e0, {next_steps} FROM coded
+                WINDOW by_user AS (PARTITION BY u ORDER BY timestamp, event_id)
+            ),
+            paths AS ({paths}),
+            per_person AS (SELECT DISTINCT * FROM paths),  -- each person once per path
+            counted AS (
+                SELECT len, {", ".join(cols)}, COUNT(*) AS users
+                FROM per_person
+                GROUP BY ALL
+                HAVING COUNT(*) >= {int(min_users)}
+            )
+            SELECT len, {", ".join(cols)}, users,
+                   (SELECT COUNT(DISTINCT user_id) FROM events) AS total_users,
+                   (SELECT list(event_name ORDER BY id) FROM names) AS name_list
+            FROM counted
+            ORDER BY users DESC, len DESC, {", ".join(cols)}
+            LIMIT {int(limit)}
         """)
 
-        if not rows:
-            return []
-
-        # Group events by user
-        user_events = {}
-        for user_id, event_name in rows:
-            if user_id not in user_events:
-                user_events[user_id] = []
-            user_events[user_id].append(event_name)
-
-        # Extract all sequences
-        sequence_counts = {}
-        for user_id, events in user_events.items():
-            for length in range(2, min(max_depth + 1, len(events) + 1)):
-                for i in range(len(events) - length + 1):
-                    sequence = tuple(events[i:i + length])
-                    sequence_counts[sequence] = sequence_counts.get(sequence, 0) + 1
-
-        # Sort by frequency and filter
-        total_users = len(user_events)
-        funnels = []
-
-        for sequence, user_count in sorted(sequence_counts.items(),
-                                          key=lambda x: x[1],
-                                          reverse=True):
-            if user_count >= min_users:
-                funnels.append({
-                    "steps": list(sequence),
-                    "user_count": user_count,
-                    "conversion_rate": round(user_count / total_users, 4)
-                })
-
-        return funnels
+        suggestions = []
+        for row in rows:
+            length, *ids, users, total_users, name_list = row
+            suggestions.append({
+                # turn the number ids back into event names
+                "steps": [name_list[i] for i in ids[:length]],
+                "user_count": users,
+                "conversion_rate": round(users / total_users, 4),
+            })
+        return suggestions

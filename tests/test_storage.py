@@ -201,3 +201,48 @@ class TestFunnelDetection:
         # Should return nothing because min_users=2
         patterns = query.detect_funnel_patterns(max_depth=3, min_users=2)
         assert len(patterns) == 0
+
+    def test_repeating_a_path_counts_the_person_once(self, temp_data_dir):
+        # Bug 5: alice doing home -> pricing three times used to count as 3,
+        # giving 3 / 2 visitors = 150%. It must count her once: 1 / 2 = 50%.
+        from pulse.storage import QueryEngine
+
+        _save_events(temp_data_dir, [
+            ("home", "alice", 1), ("pricing", "alice", 2),
+            ("home", "alice", 3), ("pricing", "alice", 4),
+            ("home", "alice", 5), ("pricing", "alice", 6),
+            ("home", "bob", 1),
+        ])
+
+        patterns = QueryEngine(temp_data_dir).detect_funnel_patterns(max_depth=2, min_users=1)
+        by_steps = {tuple(p["steps"]): p for p in patterns}
+
+        assert by_steps[("home", "pricing")]["user_count"] == 1
+        assert by_steps[("home", "pricing")]["conversion_rate"] == 0.5
+        # No suggestion can ever be above 100%
+        assert all(p["conversion_rate"] <= 1 for p in patterns)
+
+    def test_most_common_path_comes_first(self, temp_data_dir):
+        from pulse.storage import QueryEngine
+
+        _save_events(temp_data_dir, [
+            ("home", "a", 1), ("cart", "a", 2),
+            ("home", "b", 1), ("cart", "b", 2),
+            ("home", "c", 1), ("docs", "c", 2),
+        ])
+
+        patterns = QueryEngine(temp_data_dir).detect_funnel_patterns(max_depth=2, min_users=1)
+        assert patterns[0]["steps"] == ["home", "cart"]
+        assert patterns[0]["user_count"] == 2
+
+    def test_limit_caps_the_number_of_suggestions(self, temp_data_dir):
+        from pulse.storage import QueryEngine
+
+        _save_events(temp_data_dir, [
+            ("a", "u1", 1), ("b", "u1", 2), ("c", "u1", 3), ("d", "u1", 4),
+        ])
+
+        patterns = QueryEngine(temp_data_dir).detect_funnel_patterns(
+            max_depth=4, min_users=1, limit=2
+        )
+        assert len(patterns) == 2
