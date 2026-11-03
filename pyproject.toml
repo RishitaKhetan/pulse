@@ -31,9 +31,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/rishita-khetan/pulse"
-Repository = "https://github.com/rishita-khetan/pulse.git"
-Issues = "https://github.com/rishita-khetan/pulse/issues"
+Homepage = "https://github.com/RishitaKhetan/pulse"
+Repository = "https://github.com/RishitaKhetan/pulse.git"
+Issues = "https://github.com/RishitaKhetan/pulse/issues"
 
 [project.scripts]
 pulse = "pulse.cli:main"

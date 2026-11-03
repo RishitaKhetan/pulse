@@ -140,3 +140,25 @@ class TestWhoCanTalkToPulse:
         with make_client(temp_data_dir) as client:
             assert client.get("/analytics/events").status_code == 200
             assert client.get("/events").status_code == 200
+
+
+class TestExperimentResults:
+    def test_results_include_events_that_just_arrived(self, temp_data_dir):
+        # The results page must save the in-memory buffer first (like every other
+        # chart does), otherwise brand-new assignments and signups are missing.
+        with make_client(temp_data_dir) as client:
+            client.post("/experiments", json={
+                "name": "signup_button", "variants": ["blue", "red"], "goal_event": "signup",
+            })
+            variants = {}
+            for user in ["alice", "bob", "carol", "dan"]:
+                variants[user] = client.get(
+                    f"/experiments/signup_button/assign?user_id={user}"
+                ).json()["variant"]
+            client.post("/events/batch", json=[{"event_name": "signup", "user_id": "alice"}])
+
+            res = client.get("/experiments/signup_button/results").json()
+
+        by_variant = {v["variant"]: v for v in res["variants"]}
+        assert sum(v["users"] for v in by_variant.values()) == 4
+        assert by_variant[variants["alice"]]["conversions"] == 1

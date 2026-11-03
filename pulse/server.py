@@ -216,6 +216,8 @@ def create_app(data_dir: Path) -> FastAPI:
         if not exp:
             raise HTTPException(status_code=404, detail="Experiment not found")
 
+        # Save buffered events first so brand-new assignments/conversions count
+        store.flush()
         rows = query.experiment_results(name, exp.goal_event)
         variant_results = [
             {
