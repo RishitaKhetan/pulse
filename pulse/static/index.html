@@ -7,696 +7,943 @@
   <!-- Chart library, served by Pulse itself so it works offline -->
   <script src="/chart.umd.min.js"></script>
   <style>
+    /* ---------- Colours: every colour lives here, so re-theming is one edit ---------- */
+    :root {
+      --page:   #0d0709;   /* burgundy-black page */
+      --frame:  #120a0d;   /* outer frame around everything */
+      --panel:  #1a0e13;   /* main content panel */
+      --raise:  #22121a;   /* small raised bits: chips, rows */
+      --wine:   #2b1019;   /* the big chart card */
+      --line:   #33202a;   /* hairlines and borders */
+      --cream:  #f4e9e2;   /* main text on dark */
+      --muted:  #b69ca5;   /* secondary text on dark */
+      --faint:  #7c616b;   /* quiet labels on dark */
+      --ink:    #1a0a10;   /* text on the light cards */
+      --on-card:#3a1d28;   /* softer text on the light cards */
+
+      /* Card colours (muted, so they sit calmly on the dark page) */
+      --lilac:  #b9a3d3;
+      --sage:   #9fbf92;
+      --blush:  #e2a294;
+      --mustard:#dca54a;
+
+      /* Accents */
+      --gold:   #e9b44c;   /* chart line, active tab, highlights */
+      --coral:  #f07b63;   /* errors, the "live" dot, active nav */
+      --plum:   #7a2741;   /* control variant, last funnel step */
+      --up:     #a9c79b;  --down: #f07b63;          /* +/- on dark */
+      --up-card:#2f5a2a;  --down-card: #8a2a1c;     /* +/- on light cards */
+
+      /* Fonts: nicer ones if installed, Windows/Mac defaults otherwise */
+      --sans: "Inter", "Segoe UI", system-ui, -apple-system, sans-serif;
+      --mono: "JetBrains Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+    }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--page); color: var(--cream); font-family: var(--sans); padding: 20px; min-height: 100vh; }
+    .mono { font-family: var(--mono); font-variant-ligatures: none; }
+    button { font: inherit; cursor: pointer; }
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f8f9fa;
-      color: #1a1a2e;
-      min-height: 100vh;
-    }
+    /* ---------- Frame: icon rail on the left, main panel on the right ---------- */
+    .frame { display: flex; background: var(--frame); border: 1px solid #2a1820; border-radius: 30px; padding: 10px; min-height: calc(100vh - 40px); }
+    .rail { width: 70px; display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 8px; }
+    .logo { width: 46px; height: 46px; border-radius: 50%; background: var(--gold); display: grid; place-items: center; margin-bottom: 22px; }
+    .nav-i { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: var(--faint); background: none; border: none; }
+    .nav-i:hover { color: var(--cream); }
+    .nav-i.on { background: var(--coral); color: var(--ink); }
+    .nav-i svg { width: 19px; height: 19px; }
+    .rail .spacer { flex: 1; }
+    .main { flex: 1; min-width: 0; background: var(--panel); border: 1px solid #2a1820; border-radius: 22px; padding: 26px 30px 30px; }
 
-    header {
-      background: #fff;
-      border-bottom: 1px solid #e9ecef;
-      padding: 16px 32px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
+    /* ---------- Top bar ---------- */
+    .top { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
+    .top h1 { font-weight: 500; font-size: 36px; letter-spacing: -1px; }
+    .proj { font-family: var(--mono); font-size: 12px; color: var(--muted); background: var(--raise); padding: 6px 10px; border-radius: 999px; }
+    .pills { margin-left: auto; display: flex; background: var(--page); border: 1px solid var(--line); border-radius: 999px; padding: 4px; gap: 2px; }
+    .pills a { color: var(--muted); font-size: 13px; padding: 8px 15px; border-radius: 999px; text-decoration: none; }
+    .pills a.on { background: var(--gold); color: var(--ink); font-weight: 600; }
 
-    header h1 {
-      font-size: 20px;
-      font-weight: 700;
-      letter-spacing: -0.5px;
-    }
+    /* BPM pill: events in the last minute, shown like a heart rate */
+    .bpm { display: flex; align-items: center; gap: 9px; background: var(--page); border: 1px solid var(--line); padding: 5px 14px 5px 5px; border-radius: 999px; }
+    .bpm .heart { width: 30px; height: 30px; border-radius: 50%; background: var(--gold); display: grid; place-items: center; }
+    .bpm .heart svg { animation: beat 1s infinite; }
+    .bpm.flat .heart { background: var(--raise); }
+    .bpm.flat .heart svg { animation: none; }
+    @keyframes beat { 0%,100% { transform: scale(1); } 15% { transform: scale(1.25); } 30% { transform: scale(.95); } }
+    .bpm b { font-family: var(--mono); font-size: 16px; }
+    .bpm small { font-size: 11px; color: var(--faint); line-height: 1.1; }
+    .refresh { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--faint); }
+    .round { width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--raise); color: var(--muted); display: grid; place-items: center; }
+    .round:disabled { opacity: .5; }
 
-    header h1 span { color: #6366f1; }
+    /* ---------- Bento grid and cards ---------- */
+    .bento { display: grid; grid-template-columns: repeat(12, 1fr); gap: 16px; }
+    .card { border-radius: 22px; padding: 22px; position: relative; }
+    .wrap { position: relative; }
+    /* A round bite out of the top-right corner holds the "show SQL" button */
+    .notch { -webkit-mask: radial-gradient(circle at calc(100% - 24px) 24px, transparent 27px, #000 28px);
+                     mask: radial-gradient(circle at calc(100% - 24px) 24px, transparent 27px, #000 28px); }
+    .sqlb { position: absolute; right: 3px; top: 3px; width: 42px; height: 42px; border-radius: 50%; background: var(--page); color: var(--gold);
+            border: none; font-family: var(--mono); font-size: 11px; display: grid; place-items: center; font-variant-ligatures: none; }
+    .sqlb:hover { background: #000; }
+    .k { font-family: var(--mono); font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--muted); }
+    .big { font-size: 40px; font-weight: 600; letter-spacing: -1.2px; }
+    .delta { font-family: var(--mono); font-size: 12px; }
+    .up { color: var(--up); } .down { color: var(--down); }
+    .light { color: var(--ink); }                         /* any light-coloured card */
+    .light .k, .light .sub { color: var(--on-card); }
+    .light .up { color: var(--up-card); } .light .down { color: var(--down-card); }
+    .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .empty { color: var(--faint); font-size: 13px; padding: 18px 0; }
+    .light .empty { color: var(--on-card); }
 
-    #last-updated { font-size: 13px; color: #6c757d; }
+    /* Hero chart card */
+    .hero { background: var(--wine); height: 100%; }
+    .hero .k { color: #c48a9b; }
+    .hero-head { display: flex; justify-content: space-between; align-items: flex-start; padding-right: 46px; }
+    .ranges { display: flex; gap: 4px; font-family: var(--mono); font-size: 11px; }
+    .ranges button { background: none; border: none; color: #c48a9b; padding: 5px 10px; border-radius: 999px; font-family: var(--mono); font-size: 11px; }
+    .ranges button.on { background: var(--gold); color: var(--ink); }
+    .chart-box { position: relative; height: 210px; margin-top: 10px; }
 
-    main {
-      padding: 32px;
-      max-width: 1200px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 24px;
-    }
+    /* Users card: one dot per user */
+    .users { background: var(--lilac); height: 100%; display: flex; flex-direction: column; }
+    .dots { display: grid; grid-template-columns: repeat(10, 1fr); gap: 5px; margin: auto 0 12px; padding-top: 14px; }
+    .dots i { aspect-ratio: 1; border-radius: 50%; background: rgba(26,10,16,.18); }
+    .dots i.a { background: var(--ink); }
+    .dots i.hot { background: #c8402c; }
+    .mini { display: flex; flex-direction: column; gap: 16px; height: 100%; }
+    .mini .wrap { flex: 1; display: flex; }
+    .mini .card { flex: 1; display: flex; flex-direction: column; justify-content: space-between; min-height: 130px; }
+    .mini .big { font-size: 32px; }
+    .mini .k { padding-right: 40px; }   /* keep labels clear of the SQL button */
 
-    .cards {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: 16px;
-    }
+    /* Section headers */
+    .sec { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; }
+    .sec h2 { font-size: 21px; font-weight: 600; letter-spacing: -.4px; }
+    .sec .r { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+    .chip { font-size: 12px; border: 1px solid var(--line); padding: 6px 12px; border-radius: 999px; color: var(--muted); background: var(--raise); }
+    button.chip.on { background: var(--gold); color: var(--ink); border-color: var(--gold); }
+    .chip.sql { color: var(--gold); font-family: var(--mono); }
 
-    .card {
-      background: #fff;
-      border: 1px solid #e9ecef;
-      border-radius: 12px;
-      padding: 24px;
-    }
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th { text-align: left; font-size: 12px; font-weight: 500; color: var(--faint); padding: 0 0 10px; }
+    td { padding: 11px 0; border-top: 1px solid var(--line); }
+    td.num { font-family: var(--mono); }
+    .ev { display: flex; align-items: center; gap: 12px; }
+    .ev b { font-weight: 500; font-family: var(--mono); font-size: 13.5px; }
+    .badge { width: 32px; height: 32px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--raise); border: 1px solid var(--line); }
+    .bar { height: 8px; border-radius: 99px; background: #2a1820; width: 120px; overflow: hidden; }
+    .bar i { display: block; height: 100%; border-radius: 99px; }
 
-    .card .label {
-      font-size: 12px;
-      color: #6c757d;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 8px;
-    }
+    /* Funnel card */
+    .funnel { background: var(--sage); margin-top: 16px; }
+    .funnel-form { display: flex; gap: 8px; margin: 12px 0 6px; }
+    .funnel-form input { flex: 1; min-width: 0; padding: 9px 14px; border-radius: 999px; border: 1px solid rgba(26,10,16,.2); background: rgba(255,255,255,.35); color: var(--ink); font-family: var(--mono); font-size: 12.5px; outline: none; }
+    .btn-dark { background: var(--ink); color: var(--gold); border: none; font-weight: 600; font-size: 13px; padding: 9px 18px; border-radius: 999px; }
+    .btn-dark:disabled { opacity: .6; }
+    .fsteps { display: flex; align-items: flex-end; gap: 16px; margin-top: 14px; flex-wrap: wrap; }
+    .fsteps .st { text-align: center; font-size: 12px; color: var(--on-card); }
+    .fsteps .st span { display: block; border-radius: 50%; background: var(--ink); margin: 0 auto 8px; }
+    .fsteps .st b { display: block; font-family: var(--mono); color: var(--ink); font-size: 14px; }
+    .fsteps .arrow { color: var(--on-card); padding-bottom: 40px; font-family: var(--mono); font-size: 12px; text-align: center; }
 
-    .card .value {
-      font-size: 36px;
-      font-weight: 700;
-      letter-spacing: -1px;
-    }
+    /* Experiment card */
+    .exp { background: var(--mustard); }
+    .exp-row { display: flex; gap: 20px; align-items: center; margin: 12px 0; }
+    .legend div { display: flex; align-items: baseline; gap: 10px; margin-bottom: 8px; font-size: 13px; color: var(--on-card); }
+    .legend b { font-family: var(--mono); font-size: 22px; color: var(--ink); font-weight: 500; }
+    .note { font-size: 13.5px; color: var(--on-card); line-height: 1.5; }
+    .pill-status { font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 999px; background: rgba(26,10,16,.12); }
 
-    .chart-card {
-      background: #fff;
-      border: 1px solid #e9ecef;
-      border-radius: 12px;
-      padding: 24px;
-    }
+    /* Retention card */
+    .ret { background: var(--wine); margin-top: 16px; overflow-x: auto; }
+    .ret table { font-size: 12.5px; }
+    .ret td, .ret th { padding: 7px 4px; text-align: center; }
+    .ret td:first-child, .ret th:first-child { text-align: left; }
+    .cell { display: block; border-radius: 6px; padding: 5px 0; font-family: var(--mono); font-size: 11.5px; }
 
-    .chart-card h2 {
-      font-size: 13px;
-      font-weight: 600;
-      color: #6c757d;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      margin-bottom: 20px;
-    }
+    /* Live events band */
+    .stream { margin-top: 18px; background: #0f070a; border: 1px solid #2a1820; border-radius: 24px; padding: 18px; display: grid; grid-template-columns: 1fr 1.35fr; gap: 14px; }
+    .stream h3 { font-weight: 500; font-size: 17px; padding: 4px 6px 10px; display: flex; align-items: center; gap: 10px; }
+    .erow { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 10px 12px; border-radius: 14px; border: none; background: #1f1016; color: #e8d9d3; font-size: 13px; margin-bottom: 7px; }
+    .erow:hover { background: #2a1820; }
+    .erow.on { background: var(--lilac); color: var(--ink); }
+    .erow .t { margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--faint); }
+    .erow.on .t { color: var(--on-card); }
+    .tag { font-family: var(--mono); font-size: 11px; padding: 3px 8px; border-radius: 99px; border: 1px solid #4a2d3a; color: var(--muted); }
+    .tag.err { color: var(--coral); border-color: var(--coral); }
+    .erow.on .tag { background: var(--ink); color: var(--gold); border-color: var(--ink); }
+    .feed { max-height: 330px; overflow-y: auto; }
+    .detail { background: var(--lilac); color: var(--ink); border-radius: 18px; padding: 20px; }
+    .detail .k { color: var(--on-card); }
+    .detail .v { font-family: var(--mono); font-size: 26px; margin: 4px 0 16px; overflow-wrap: anywhere; }
+    .props { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .prop { background: #cbb9e0; border-radius: 22px; padding: 12px 16px; min-width: 0; }
+    .prop .v { font-size: 15px; margin: 4px 0 0; }
+    .detail .foot { margin-top: 12px; background: var(--ink); color: #d8c6cf; border-radius: 999px; padding: 12px 18px; display: flex; justify-content: space-between; gap: 10px; font-family: var(--mono); font-size: 12px; }
 
-    .charts-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 16px;
-    }
+    /* "Show SQL" pop-up */
+    .modal { position: fixed; inset: 0; background: rgba(5,2,3,.7); display: none; place-items: center; padding: 20px; z-index: 10; }
+    .modal.open { display: grid; }
+    .modal-box { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 20px; width: min(680px, 100%); }
+    .modal-box pre { background: var(--page); color: #e8d9d3; border-radius: 14px; padding: 16px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; overflow-x: auto; margin: 12px 0; white-space: pre; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-    }
-
-    th {
-      text-align: left;
-      font-size: 12px;
-      font-weight: 600;
-      color: #6c757d;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      padding: 0 0 10px;
-      border-bottom: 1px solid #e9ecef;
-    }
-
-    td {
-      padding: 10px 0;
-      border-bottom: 1px solid #f1f3f5;
-      color: #343a40;
-    }
-
-    tr:last-child td { border-bottom: none; }
-
-    .badge {
-      background: #f1f3f5;
-      color: #495057;
-      padding: 2px 10px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
-    }
-
-    .props {
-      font-size: 12px;
-      color: #adb5bd;
-      font-family: monospace;
-    }
-
-    .empty {
-      color: #adb5bd;
-      font-size: 14px;
-      text-align: center;
-      padding: 32px 0;
-    }
-
-    /* Holds all the charts, so they can be hidden together */
-    .stack { display: flex; flex-direction: column; gap: 24px; }
-
-    .header-right { display: flex; align-items: center; gap: 12px; }
-
-    .btn {
-      padding: 8px 16px;
-      background: #6366f1;
-      color: #fff;
-      border: none;
-      border-radius: 8px;
-      font-size: 13px;
-      cursor: pointer;
-    }
-    .btn:disabled { opacity: 0.6; cursor: default; }
-    .btn-light { background: #f1f3f5; color: #495057; }
-
-    /* Welcome screen shown until the first event arrives */
-    #welcome h2 { font-size: 22px; letter-spacing: -0.5px; margin-bottom: 8px; }
-    #welcome p { color: #6c757d; font-size: 14px; line-height: 1.6; }
-    #welcome h3 { font-size: 14px; margin: 24px 0 8px; }
+    /* Welcome screen (no events yet): a flat heartbeat line */
+    #welcome { background: var(--wine); border-radius: 22px; padding: 30px; max-width: 860px; }
+    #welcome h2 { font-size: 26px; letter-spacing: -.5px; margin: 14px 0 8px; }
+    #welcome p { color: var(--muted); font-size: 14px; line-height: 1.6; }
+    #welcome h3 { font-size: 14px; margin: 22px 0 8px; font-weight: 600; }
     .snippet { position: relative; }
-    .snippet pre {
-      background: #1a1a2e;
-      color: #e9ecef;
-      border-radius: 8px;
-      padding: 16px;
-      font-size: 13px;
-      line-height: 1.5;
-      overflow-x: auto;
+    .snippet pre { background: var(--page); color: #e8d9d3; border-radius: 14px; padding: 16px; font-family: var(--mono); font-size: 13px; line-height: 1.5; overflow-x: auto; }
+    .snippet .chip { position: absolute; top: 8px; right: 8px; }
+    .welcome-actions { display: flex; align-items: center; gap: 12px; margin-top: 24px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+    .btn-gold { background: var(--gold); color: var(--ink); border: none; font-weight: 600; font-size: 13px; padding: 11px 18px; border-radius: 999px; }
+    .btn-gold:disabled { opacity: .6; }
+    code { font-family: var(--mono); background: var(--raise); padding: 1px 6px; border-radius: 4px; }
+
+    /* ---------- Smaller screens: stack everything in one column ---------- */
+    @media (max-width: 1100px) {
+      .bento > * { grid-column: span 12 !important; }
+      .mini { flex-direction: row; }
+      .stream { grid-template-columns: 1fr; }
     }
-    .snippet .btn { position: absolute; top: 8px; right: 8px; padding: 4px 10px; font-size: 12px; }
-    .welcome-actions { display: flex; align-items: center; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
-    code { font-family: monospace; background: #f1f3f5; padding: 1px 6px; border-radius: 4px; }
+    @media (max-width: 640px) {
+      body { padding: 8px; }
+      .frame { flex-direction: column; border-radius: 22px; }
+      .rail { width: auto; flex-direction: row; padding: 6px 8px; }
+      .logo { margin: 0 10px 0 0; }
+      .rail .spacer { display: none; }
+      .main { padding: 18px 16px; }
+      .pills { margin-left: 0; overflow-x: auto; max-width: 100%; }
+      .mini { flex-direction: column; }
+      .props { grid-template-columns: 1fr; }
+      .bar { width: 60px; }
+      .hide-sm { display: none; }
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>pulse<span>.</span></h1>
-    <div class="header-right">
-      <span id="last-updated">Loading...</span>
-      <button id="refresh-button" class="btn btn-light" onclick="refresh()">Refresh</button>
+<div class="frame">
+  <!-- Left icon rail: each icon jumps to a section of the page -->
+  <aside class="rail">
+    <div class="logo" title="Pulse">
+      <!-- Jolt mark: one circle split in two and nudged apart -->
+      <svg viewBox="0 0 64 64" width="30" height="30"><path d="M3 28A22 22 0 0 1 47 28Z" fill="#1a0a10"/><path d="M17 36A22 22 0 0 0 61 36Z" fill="#1a0a10"/></svg>
     </div>
-  </header>
+    <button class="nav-i on" title="Overview" onclick="jumpTo('overview')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></svg></button>
+    <button class="nav-i" title="Funnels" onclick="jumpTo('funnels')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5h16l-6 7v6l-4 2v-8z"/></svg></button>
+    <button class="nav-i" title="Retention" onclick="jumpTo('retention')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="6" cy="18" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="18" cy="6" r="2"/><circle cx="18" cy="18" r="2"/><circle cx="12" cy="18" r="2"/><circle cx="18" cy="12" r="2"/></svg></button>
+    <button class="nav-i" title="Experiments" onclick="jumpTo('experiments')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11a9 9 0 0 1 18 0z"/><path d="M5 14a7 7 0 0 0 14 0"/></svg></button>
+    <button class="nav-i" title="Live events" onclick="jumpTo('events')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg></button>
+    <div class="spacer"></div>
+  </aside>
 
-  <main>
+  <main class="main">
+    <!-- Top bar -->
+    <div class="top" id="overview">
+      <h1>Overview</h1>
+      <span class="proj hide-sm" id="origin-label">localhost</span>
+      <nav class="pills">
+        <a href="#overview" class="on">Overview</a><a href="#funnels">Funnels</a><a href="#retention">Retention</a><a href="#experiments">Experiments</a><a href="#events">Events</a>
+      </nav>
+      <div class="bpm flat" id="bpm" title="Events received in the last minute">
+        <span class="heart"><svg viewBox="0 0 64 64" width="18" height="18"><path d="M3 28A22 22 0 0 1 47 28Z" fill="#1a0a10"/><path d="M17 36A22 22 0 0 0 61 36Z" fill="#1a0a10"/></svg></span>
+        <b id="bpm-value">0</b><small>BPM<br>events / min</small>
+        <svg width="54" height="22" viewBox="0 0 54 22"><path id="bpm-line" d="M0 12H54" fill="none" stroke="#e9b44c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <div class="refresh">
+        <span id="last-updated" class="hide-sm">Loading...</span>
+        <button id="refresh-button" class="round" onclick="refresh()" title="Refresh now">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+        </button>
+      </div>
+    </div>
+
     <!-- Welcome screen: only shown while there are no events yet -->
-    <div id="welcome" class="chart-card" style="display:none;">
-      <h2>👋 Pulse is running</h2>
-      <p>No events yet. Add one of these snippets to your app, or press the button below to send a test event.
+    <div id="welcome" style="display:none;">
+      <!-- Flatline: no heartbeat yet -->
+      <svg width="220" height="40" viewBox="0 0 220 40"><path d="M0 20H220" stroke="#e9b44c" stroke-width="2.5" stroke-linecap="round"/><circle cx="220" cy="20" r="0"/></svg>
+      <h2>Pulse is running. No heartbeat yet.</h2>
+      <p>No events have arrived. Add one of these snippets to your app, or press the button below to send a test event.
         Charts appear here as soon as the first event arrives.</p>
 
       <h3>JavaScript (any website)</h3>
       <div class="snippet">
-        <button class="btn btn-light" onclick="copySnippet('js-snippet', this)">Copy</button>
+        <button class="chip" onclick="copySnippet('js-snippet', this)">Copy</button>
         <pre id="js-snippet"></pre>
       </div>
 
       <h3>Python (any backend or script)</h3>
       <div class="snippet">
-        <button class="btn btn-light" onclick="copySnippet('py-snippet', this)">Copy</button>
+        <button class="chip" onclick="copySnippet('py-snippet', this)">Copy</button>
         <pre id="py-snippet"></pre>
       </div>
 
       <div class="welcome-actions">
-        <button id="test-event-button" class="btn" onclick="sendTestEvent()">Send a test event</button>
-        <span id="test-event-status" style="font-size:13px;color:#6c757d;"></span>
-        <span style="font-size:13px;color:#6c757d;">or run <code>pulse demo-data</code> for sample data</span>
+        <button id="test-event-button" class="btn-gold" onclick="sendTestEvent()">Send a test event</button>
+        <span id="test-event-status"></span>
+        <span>or run <code>pulse demo-data</code> for sample data</span>
       </div>
     </div>
 
-    <!-- All the charts -->
-    <div id="charts" class="stack">
-    <div class="cards">
-      <div class="card">
-        <div class="label">Total Events</div>
-        <div class="value" id="total-events">—</div>
-      </div>
-      <div class="card">
-        <div class="label">Event Types</div>
-        <div class="value" id="event-types">—</div>
-      </div>
-      <div class="card">
-        <div class="label">Active Users</div>
-        <div class="value" id="active-users">—</div>
-      </div>
-    </div>
-
-    <div class="chart-card">
-      <h2>Events Over Time</h2>
-      <canvas id="over-time-chart" height="80"></canvas>
-    </div>
-
-    <div class="charts-row">
-      <div class="chart-card">
-        <h2>Event Breakdown</h2>
-        <canvas id="event-counts-chart" height="200"></canvas>
-      </div>
-      <div class="chart-card">
-        <h2>Top Users</h2>
-        <div id="top-users-table"></div>
-      </div>
-    </div>
-
-    <div class="chart-card">
-      <h2>Funnel</h2>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:20px;">
-        <input id="funnel-input" type="text"
-          value="page_view, button_click, signup"
-          style="flex:1;padding:8px 12px;border:1px solid #e9ecef;border-radius:8px;font-size:13px;outline:none;"
-          placeholder="step_1, step_2, step_3"
-        />
-        <button onclick="loadFunnel()"
-          style="padding:8px 16px;background:#6366f1;color:#fff;border:none;border-radius:8px;font-size:13px;cursor:pointer;">
-          Run
-        </button>
-      </div>
-      <div id="funnel-chart"></div>
-    </div>
-
-    <div class="chart-card">
-      <h2>Retention</h2>
-      <div id="retention-table"></div>
-    </div>
-
-    <div class="chart-card">
-      <h2>Experiments</h2>
-      <div id="experiments-section"></div>
-    </div>
-
-    <div class="chart-card">
-      <h2>Recent Events</h2>
-      <div id="recent-events-table"></div>
-    </div>
-    </div>
-  </main>
-
-  <script>
-    let overTimeChart = null;
-    let eventCountsChart = null;
-
-    // Turn any text from events into harmless plain text before putting it on
-    // the page. Without this, an event named "<img onerror=...>" would be run
-    // as code by the browser instead of just being shown.
-    function escapeHtml(value) {
-      return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-    }
-
-    async function fetchAll() {
-      const steps = document.getElementById('funnel-input').value
-        .split(',').map(s => s.trim()).filter(Boolean);
-
-      const [counts, overTime, topUsers, recent, funnel, retention] = await Promise.all([
-        fetch('/analytics/events').then(r => r.json()),
-        fetch('/analytics/over-time?granularity=hour').then(r => r.json()),
-        fetch('/analytics/top-users?limit=10').then(r => r.json()),
-        fetch('/events?limit=20').then(r => r.json()),
-        fetch('/analytics/funnel', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ steps }),
-        }).then(r => r.json()),
-        fetch('/analytics/retention').then(r => r.json()),
-      ]);
-      return { counts, overTime, topUsers, recent, funnel, retention };
-    }
-
-    async function loadFunnel() {
-      const steps = document.getElementById('funnel-input').value
-        .split(',').map(s => s.trim()).filter(Boolean);
-      const data = await fetch('/analytics/funnel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ steps }),
-      }).then(r => r.json());
-      renderFunnel(data);
-    }
-
-    function renderCards(counts, topUsers) {
-      const total = counts.reduce((sum, e) => sum + e.count, 0);
-      document.getElementById('total-events').textContent = total.toLocaleString();
-      document.getElementById('event-types').textContent = counts.length;
-      document.getElementById('active-users').textContent = topUsers.length;
-    }
-
-    function renderOverTime(data) {
-      const labels = data.map(d => {
-        const date = new Date(d.bucket);
-        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      });
-      const values = data.map(d => d.count);
-      const ctx = document.getElementById('over-time-chart').getContext('2d');
-
-      if (overTimeChart) {
-        overTimeChart.data.labels = labels;
-        overTimeChart.data.datasets[0].data = values;
-        overTimeChart.update();
-        return;
-      }
-
-      overTimeChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [{
-            data: values,
-            borderColor: '#6366f1',
-            backgroundColor: 'rgba(99,102,241,0.08)',
-            tension: 0.3,
-            fill: true,
-            pointRadius: 4,
-            pointBackgroundColor: '#6366f1',
-          }]
-        },
-        options: {
-          responsive: true,
-          plugins: { legend: { display: false } },
-          scales: {
-            y: { beginAtZero: true, grid: { color: '#f1f3f5' } },
-            x: { grid: { display: false } },
-          }
-        }
-      });
-    }
-
-    function renderEventCounts(data) {
-      const labels = data.map(d => d.event_name);
-      const values = data.map(d => d.count);
-      const ctx = document.getElementById('event-counts-chart').getContext('2d');
-
-      if (eventCountsChart) {
-        eventCountsChart.data.labels = labels;
-        eventCountsChart.data.datasets[0].data = values;
-        eventCountsChart.update();
-        return;
-      }
-
-      eventCountsChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-          labels,
-          datasets: [{
-            data: values,
-            backgroundColor: '#6366f1',
-            borderRadius: 6,
-          }]
-        },
-        options: {
-          responsive: true,
-          plugins: { legend: { display: false } },
-          scales: {
-            y: { beginAtZero: true, grid: { color: '#f1f3f5' } },
-            x: { grid: { display: false } },
-          }
-        }
-      });
-    }
-
-    function renderTopUsers(data) {
-      const el = document.getElementById('top-users-table');
-      if (!data.length) {
-        el.innerHTML = '<p class="empty">No users yet</p>';
-        return;
-      }
-      el.innerHTML = `
-        <table>
-          <thead><tr><th>User</th><th>Events</th></tr></thead>
-          <tbody>
-            ${data.map(u => `
-              <tr>
-                <td>${escapeHtml(u.user_id)}</td>
-                <td><span class="badge">${escapeHtml(u.event_count)}</span></td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      `;
-    }
-
-    function renderRecentEvents(data) {
-      const el = document.getElementById('recent-events-table');
-      if (!data.length) {
-        el.innerHTML = '<p class="empty">No events yet</p>';
-        return;
-      }
-      const rows = [...data].reverse();
-      el.innerHTML = `
-        <table>
-          <thead>
-            <tr><th>Event</th><th>User</th><th>Time</th><th>Properties</th></tr>
-          </thead>
-          <tbody>
-            ${rows.map(e => `
-              <tr>
-                <td><strong>${escapeHtml(e.event_name)}</strong></td>
-                <td>${e.user_id ? escapeHtml(e.user_id) : '—'}</td>
-                <td>${escapeHtml(new Date(e.timestamp).toLocaleTimeString())}</td>
-                <td class="props">${Object.keys(e.properties || {}).length ? escapeHtml(JSON.stringify(e.properties)) : '—'}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-      `;
-    }
-
-    function renderFunnel(data) {
-      const el = document.getElementById('funnel-chart');
-      if (!data.length) {
-        el.innerHTML = '<p class="empty">No data for these steps</p>';
-        return;
-      }
-      const top = data[0].users || 1;
-      el.innerHTML = data.map((d, i) => {
-        // Number() makes sure these are plain numbers (they also go into a style)
-        const pct = Math.round(Number(d.conversion_from_top) * 100) || 0;
-        const fromPrev = i === 0 ? 100 : Math.round(Number(d.conversion_from_previous) * 100) || 0;
-        return `
-          <div style="margin-bottom:16px;">
-            <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:6px;">
-              <span style="font-weight:600;">${escapeHtml(d.step)}</span>
-              <span style="color:#6c757d;">${escapeHtml(Number(d.users).toLocaleString())} users
-                ${i > 0 ? `<span style="color:#adb5bd;margin-left:8px;">↓ ${fromPrev}% from prev</span>` : ''}
-              </span>
-            </div>
-            <div style="background:#f1f3f5;border-radius:6px;height:28px;overflow:hidden;">
-              <div style="background:#6366f1;height:100%;width:${pct}%;border-radius:6px;
-                display:flex;align-items:center;padding-left:10px;
-                color:#fff;font-size:12px;font-weight:600;min-width:36px;">
-                ${pct}%
+    <!-- Everything below is hidden until there is data -->
+    <div id="charts">
+      <!-- Row 1: chart, users, two small stats -->
+      <div class="bento">
+        <div class="wrap" style="grid-column: span 7">
+          <div class="card hero notch">
+            <div class="hero-head">
+              <div>
+                <div class="k">Events · all time</div>
+                <div class="big" style="font-size:50px;margin-top:6px" id="total-events">—</div>
+                <div class="sub" id="event-types">—</div>
+              </div>
+              <div class="ranges">
+                <button id="range-hour" class="on" onclick="setGranularity('hour')">HOURLY</button>
+                <button id="range-day" onclick="setGranularity('day')">DAILY</button>
               </div>
             </div>
+            <div class="chart-box"><canvas id="over-time-chart"></canvas></div>
           </div>
-        `;
-      }).join('');
-    }
+          <button class="sqlb" onclick="showSql('overTime')" title="Show SQL">&lt;/&gt;</button>
+        </div>
 
-    function renderRetention(data) {
-      const el = document.getElementById('retention-table');
-      if (!data.length) {
-        el.innerHTML = '<p class="empty">Not enough data yet — retention needs events across multiple days</p>';
-        return;
-      }
-
-      // Pivot: cohort → { day: rate }
-      const cohorts = [...new Set(data.map(r => r.cohort))];
-      const days = [...new Set(data.map(r => r.day))].sort((a, b) => a - b);
-      const lookup = {};
-      data.forEach(r => { lookup[`${r.cohort}__${r.day}`] = r.retention_rate; });
-
-      el.innerHTML = `
-        <table>
-          <thead>
-            <tr>
-              <th>Cohort</th>
-              <th>Size</th>
-              ${days.map(d => `<th>Day ${escapeHtml(d)}</th>`).join('')}
-            </tr>
-          </thead>
-          <tbody>
-            ${cohorts.map(cohort => {
-              const size = data.find(r => r.cohort === cohort)?.cohort_size || 0;
-              return `<tr>
-                <td>${escapeHtml(cohort)}</td>
-                <td><span class="badge">${escapeHtml(size)}</span></td>
-                ${days.map(d => {
-                  const rate = lookup[`${cohort}__${d}`];
-                  return `<td style="color:${rate >= 50 ? '#2d6a4f' : rate >= 20 ? '#6c757d' : '#adb5bd'}">
-                    ${rate != null ? escapeHtml(rate) + '%' : '—'}
-                  </td>`;
-                }).join('')}
-              </tr>`;
-            }).join('')}
-          </tbody>
-        </table>
-      `;
-    }
-
-    async function renderExperiments() {
-      const el = document.getElementById('experiments-section');
-      let experiments;
-      try {
-        experiments = await fetch('/experiments').then(r => r.json());
-      } catch {
-        el.innerHTML = '<p class="empty">Could not load experiments</p>';
-        return;
-      }
-      if (!experiments.length) {
-        el.innerHTML = '<p class="empty">No experiments yet — create one via POST /experiments</p>';
-        return;
-      }
-
-      const results = await Promise.all(
-        experiments.map(e => fetch('/experiments/' + encodeURIComponent(e.name) + '/results').then(r => r.json()).catch(() => null))
-      );
-
-      el.innerHTML = experiments.map((exp, i) => {
-        const r = results[i];
-        const statusColor = exp.status === 'running' ? '#2d6a4f' : '#6c757d';
-        let html = `
-          <div style="margin-bottom:28px;">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
-              <strong style="font-size:15px;">${escapeHtml(exp.name)}</strong>
-              <span style="font-size:11px;font-weight:600;color:${statusColor};
-                background:${exp.status === 'running' ? '#d8f3dc' : '#f1f3f5'};
-                padding:2px 8px;border-radius:20px;">${escapeHtml(exp.status)}</span>
-              <span style="font-size:12px;color:#6c757d;">goal: <code>${escapeHtml(exp.goal_event)}</code></span>
+        <div class="wrap" style="grid-column: span 3">
+          <div class="card users light notch">
+            <div class="k">Active users</div>
+            <div class="big" style="margin-top:6px" id="active-users">—</div>
+            <div class="sub" id="users-sub">people who sent events</div>
+            <div class="dots" id="user-dots"></div>
+            <div style="display:flex;gap:14px;font-size:12px;color:var(--on-card)">
+              <span>● user</span><span style="color:#a8321f">● top 10 most active</span>
             </div>
-        `;
-        if (!r || !r.variants.length) {
-          html += '<p style="color:#adb5bd;font-size:13px;">No assignment data yet</p>';
-        } else {
-          const winner = r.winner;
-          // "vs control" column: difference and 95% range, e.g. "+6.0 pts (+1.2 to +10.8)"
-          const points = x => `${x >= 0 ? '+' : ''}${(Number(x) * 100).toFixed(1)}`;
-          const vsControl = {};
-          (r.comparisons || []).forEach(c => {
-            vsControl[c.variant] = `${points(c.difference)} pts (${points(c.ci_low)} to ${points(c.ci_high)})`;
-          });
+          </div>
+          <button class="sqlb" onclick="showSql('topUsers')" title="Show SQL">&lt;/&gt;</button>
+        </div>
 
-          // The plain-English summary goes first, in green when there's a winner
-          html += `<p style="font-size:14px;line-height:1.5;margin-bottom:14px;padding:12px 14px;border-radius:8px;
-              background:${winner ? '#d8f3dc' : '#f8f9fa'};color:${winner ? '#2d6a4f' : '#495057'};">
-              ${escapeHtml(r.summary)}
-            </p>`;
+        <div class="mini" style="grid-column: span 2">
+          <div class="wrap">
+            <div class="card light notch" style="background:var(--sage)">
+              <div class="k" id="conv-label">Conversion</div>
+              <div><div class="big" id="conv-value">—</div><div class="sub" id="conv-sub">first → last step</div></div>
+            </div>
+            <button class="sqlb" onclick="showSql('funnel')" title="Show SQL">&lt;/&gt;</button>
+          </div>
+          <div class="wrap">
+            <div class="card light notch" style="background:var(--blush)">
+              <div class="k">Day-1 retention</div>
+              <div><div class="big" id="ret-value">—</div><div class="sub" id="ret-sub">came back next day</div></div>
+            </div>
+            <button class="sqlb" onclick="showSql('retention')" title="Show SQL">&lt;/&gt;</button>
+          </div>
+        </div>
+      </div>
 
-          html += `<table>
-            <thead><tr>
-              <th>Variant</th><th>Users</th><th>Conversions</th><th>Rate</th><th>vs control (95% range)</th><th></th>
-            </tr></thead>
-            <tbody>
-              ${r.variants.map((v, i) => `
-                <tr>
-                  <td><strong>${escapeHtml(v.variant)}</strong>${i === 0 ? ' <span style="color:#adb5bd;font-size:12px;">control</span>' : ''}</td>
-                  <td>${escapeHtml(v.users)}</td>
-                  <td>${escapeHtml(v.conversions)}</td>
-                  <td>${escapeHtml((Number(v.conversion_rate) * 100).toFixed(1))}%</td>
-                  <td>${vsControl[v.variant] ? escapeHtml(vsControl[v.variant]) : '—'}</td>
-                  <td>${winner === v.variant
-                    ? '<span style="background:#d8f3dc;color:#2d6a4f;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600;">winner</span>'
-                    : ''}</td>
-                </tr>
-              `).join('')}
-            </tbody>
-          </table>`;
+      <!-- Row 2: top events + funnel on the left, experiment + retention on the right -->
+      <div class="bento" style="margin-top:28px">
+        <div style="grid-column: span 7">
+          <div class="sec"><h2>Top events</h2><div class="r"><button class="chip sql" onclick="showSql('counts')">&lt;/&gt; SQL</button></div></div>
+          <div id="top-events-table"></div>
 
-          // The classic p-value stays available, but small, for those who want it
-          if (r.p_value !== null) {
-            html += `<p style="margin-top:10px;font-size:12px;color:#adb5bd;">
-              p-value: ${escapeHtml(r.p_value)}
-            </p>`;
-          }
-        }
-        html += '</div>';
-        return html;
-      }).join('<hr style="border:none;border-top:1px solid #f1f3f5;margin:16px 0;">');
+          <div class="card funnel light" id="funnels">
+            <div class="k">Funnel · <span id="funnel-title">page_view → button_click → signup</span></div>
+            <div class="funnel-form">
+              <input id="funnel-input" type="text" value="page_view, button_click, signup" placeholder="step_1, step_2, step_3"
+                     onkeydown="if (event.key === 'Enter') loadFunnel()">
+              <button class="btn-dark" onclick="loadFunnel()">Run</button>
+            </div>
+            <div id="funnel-chart"></div>
+          </div>
+        </div>
+
+        <div style="grid-column: span 5" id="experiments">
+          <div class="sec"><h2>Experiment</h2><div class="r" id="exp-chips"></div></div>
+          <div class="wrap">
+            <div class="card exp light notch" id="experiments-section"><p class="empty">Loading…</p></div>
+            <button class="sqlb" onclick="showSql('experiment')" title="Show SQL">&lt;/&gt;</button>
+          </div>
+
+          <div class="card ret" id="retention">
+            <div class="k" style="margin-bottom:10px">Retention · % of each day's new users who came back</div>
+            <div id="retention-table"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Row 3: live events list + the selected event's details -->
+      <section class="stream" id="events">
+        <div>
+          <h3><svg width="54" height="18" viewBox="0 0 54 18"><path d="M0 10H16L20 3L26 16L30 10H54" fill="none" stroke="#e9b44c" stroke-width="2"/></svg>Live events</h3>
+          <div class="feed" id="recent-events-table"></div>
+        </div>
+        <div class="detail" id="event-detail"><p class="empty">Click an event to see its details</p></div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<!-- "Show SQL" pop-up -->
+<div class="modal" id="sql-modal" onclick="if (event.target === this) closeSql()">
+  <div class="modal-box">
+    <div class="k" id="sql-title">SQL</div>
+    <pre id="sql-text"></pre>
+    <div class="modal-actions">
+      <button class="chip" onclick="copySnippet('sql-text', this)">Copy</button>
+      <button class="btn-gold" onclick="closeSql()">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ---------- Small helpers ----------
+
+  // Turn any text from events into harmless plain text before putting it on
+  // the page. Without this, an event named "<img onerror=...>" would be run
+  // as code by the browser instead of just being shown.
+  function escapeHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  // Fetch JSON, but return `fallback` if that one request fails,
+  // so one broken endpoint doesn't blank the whole dashboard
+  async function getJSON(url, fallback, options) {
+    try {
+      const res = await fetch(url, options);
+      if (!res.ok) return fallback;
+      return await res.json();
+    } catch {
+      return fallback;
+    }
+  }
+
+  const fmt = n => Number(n || 0).toLocaleString();
+  const pct = (x, digits = 1) => `${(Number(x) * 100).toFixed(digits)}%`;
+
+  // Each event name gets its own colour, used the same way everywhere
+  const EVENT_COLOURS = ['#b9a3d3', '#9fbf92', '#e9b44c', '#e2a294', '#8fb6d8', '#d48aa0'];
+  function colourFor(name, index) {
+    if (/error|fail|exception/i.test(name)) return '#f07b63';
+    return EVENT_COLOURS[index % EVENT_COLOURS.length];
+  }
+  // Small Jolt badge (split circle) in an event's colour
+  const joltBadge = colour =>
+    `<span class="badge"><svg viewBox="0 0 64 64" width="18" height="18"><path d="M3 28A22 22 0 0 1 47 28Z" fill="${colour}"/><path d="M17 36A22 22 0 0 0 61 36Z" fill="#f4e9e2"/></svg></span>`;
+
+  function jumpTo(id) {
+    document.getElementById(id).scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  // ---------- Show SQL: the DuckDB query behind each card ----------
+  const FILES = "read_parquet('.pulse/events/**/*.parquet', union_by_name=true)";
+  const SQL = {
+    overTime: ['Events over time', () =>
+`SELECT date_trunc('${granularity}', timestamp) AS bucket, COUNT(*) AS count
+FROM ${FILES}
+GROUP BY bucket ORDER BY bucket;`],
+    topUsers: ['Most active users', () =>
+`SELECT user_id, COUNT(*) AS event_count
+FROM ${FILES}
+WHERE user_id IS NOT NULL
+GROUP BY user_id ORDER BY event_count DESC;`],
+    counts: ['Top events', () =>
+`SELECT event_name, COUNT(*) AS count
+FROM ${FILES}
+GROUP BY event_name ORDER BY count DESC;`],
+    funnel: ['Funnel', () =>
+`-- For each step: users who did it AFTER the previous step
+WITH base AS (
+  SELECT user_id, event_name, timestamp FROM ${FILES}
+  WHERE event_name IN (${funnelSteps().map(s => `'${s}'`).join(', ')})
+),
+step_0 AS (SELECT user_id, MIN(timestamp) AS t FROM base
+           WHERE event_name = '${funnelSteps()[0] || ''}' GROUP BY user_id)
+-- step_1, step_2 ... join on the previous step with timestamp > prev.t
+SELECT (SELECT COUNT(*) FROM step_0), ...;`],
+    retention: ['Retention by day', () =>
+`WITH first_seen AS (
+  SELECT user_id, MIN(DATE_TRUNC('day', timestamp)) AS cohort
+  FROM ${FILES} WHERE user_id IS NOT NULL GROUP BY user_id
+),
+activity AS (
+  SELECT DISTINCT user_id, DATE_TRUNC('day', timestamp) AS active_day
+  FROM ${FILES} WHERE user_id IS NOT NULL
+)
+SELECT f.cohort, DATEDIFF('day', f.cohort, a.active_day) AS day_number,
+       COUNT(DISTINCT a.user_id) AS retained_users
+FROM first_seen f JOIN activity a USING (user_id)
+GROUP BY f.cohort, day_number ORDER BY f.cohort, day_number;`],
+    experiment: ['Experiment results', () =>
+`-- Users per variant, and how many of them did the goal event
+WITH assignments AS (
+  SELECT json_extract_string(properties, '$.variant') AS variant, user_id
+  FROM ${FILES}
+  WHERE event_name = '$experiment_assignment'
+    AND json_extract_string(properties, '$.experiment') = '${currentExperiment || ''}'
+)
+SELECT variant, COUNT(DISTINCT user_id) AS users, ... AS conversions
+FROM assignments GROUP BY variant;`],
+  };
+  function showSql(key) {
+    const [title, build] = SQL[key];
+    document.getElementById('sql-title').textContent = title + ' · DuckDB';
+    document.getElementById('sql-text').textContent = build();
+    document.getElementById('sql-modal').classList.add('open');
+  }
+  function closeSql() { document.getElementById('sql-modal').classList.remove('open'); }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSql(); });
+
+  // ---------- Loading data ----------
+  let granularity = 'hour';   // the hero chart can show hourly or daily buckets
+
+  function funnelSteps() {
+    return document.getElementById('funnel-input').value
+      .split(',').map(s => s.trim()).filter(Boolean);
+  }
+  function fetchFunnel() {
+    return getJSON('/analytics/funnel', [], {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ steps: funnelSteps() }),
+    });
+  }
+
+  async function fetchAll() {
+    const [counts, overTime, topUsers, recent, funnel, retention] = await Promise.all([
+      getJSON('/analytics/events', []),
+      getJSON('/analytics/over-time?granularity=' + granularity, []),
+      getJSON('/analytics/top-users?limit=1000', []),   // enough to count active users
+      getJSON('/events?limit=100', []),
+      fetchFunnel(),
+      getJSON('/analytics/retention', []),
+    ]);
+    return { counts, overTime, topUsers, recent, funnel, retention };
+  }
+
+  async function loadFunnel() {
+    renderFunnel(await fetchFunnel());
+  }
+
+  async function setGranularity(g) {
+    granularity = g;
+    document.getElementById('range-hour').classList.toggle('on', g === 'hour');
+    document.getElementById('range-day').classList.toggle('on', g === 'day');
+    renderOverTime(await getJSON('/analytics/over-time?granularity=' + g, []));
+  }
+
+  // ---------- Row 1 ----------
+  function renderCards(counts, topUsers) {
+    const total = counts.reduce((sum, e) => sum + e.count, 0);
+    document.getElementById('total-events').textContent = fmt(total);
+    document.getElementById('event-types').textContent =
+      `${counts.length} event type${counts.length === 1 ? '' : 's'}`;
+
+    // Active users: everyone who sent at least one event
+    document.getElementById('active-users').textContent =
+      topUsers.length >= 1000 ? '1,000+' : fmt(topUsers.length);
+
+    // Dot grid: 70 dots. With more than 70 users, each dot stands for several.
+    const DOTS = 70;
+    const perDot = Math.max(1, Math.ceil(topUsers.length / DOTS));
+    const filled = Math.ceil(topUsers.length / perDot);
+    const hot = Math.ceil(Math.min(10, topUsers.length) / perDot);
+    document.getElementById('users-sub').textContent =
+      perDot === 1 ? 'one dot = one user' : `one dot ≈ ${perDot} users`;
+    document.getElementById('user-dots').innerHTML = Array.from({ length: DOTS }, (_, i) =>
+      `<i class="${i < hot ? 'hot' : i < filled ? 'a' : ''}"></i>`).join('');
+  }
+
+  // The BPM pill: how many events arrived in the last 60 seconds
+  function renderBpm(recent) {
+    const now = Date.now();
+    const bpm = recent.filter(e => now - new Date(e.timestamp).getTime() < 60000).length;
+    const pill = document.getElementById('bpm');
+    document.getElementById('bpm-value').textContent = bpm >= 100 ? '99+' : bpm;
+    pill.classList.toggle('flat', bpm === 0);
+    // The logo beats at that speed (clamped so it never gets frantic)
+    pill.querySelector('.heart svg').style.animationDuration = `${Math.min(2, Math.max(0.4, 60 / Math.max(bpm, 1)))}s`;
+    // Flat line when nothing is happening, a heartbeat when something is
+    document.getElementById('bpm-line').setAttribute('d', bpm === 0 ? 'M0 12H54' : 'M0 12H14L18 5L23 19L27 12H54');
+  }
+
+  let overTimeChart = null;
+  function renderOverTime(data) {
+    const labels = data.map(d => {
+      const date = new Date(d.bucket);
+      return granularity === 'day'
+        ? date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+        : date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    });
+    const values = data.map(d => d.count);
+
+    if (overTimeChart) {
+      overTimeChart.data.labels = labels;
+      overTimeChart.data.datasets[0].data = values;
+      overTimeChart.data.datasets[0].pointRadius = values.length < 3 ? 5 : 0;
+      overTimeChart.update();
+      return;
     }
 
-    // ---- Welcome screen (shown until the first event arrives) ----
+    const ctx = document.getElementById('over-time-chart').getContext('2d');
+    overTimeChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          borderColor: '#e9b44c',
+          backgroundColor: 'rgba(233,180,76,0.10)',
+          borderWidth: 3,
+          tension: 0.25,
+          fill: true,
+          pointRadius: values.length < 3 ? 5 : 0,   // with 1-2 points a line is invisible, so show dots
+          pointBackgroundColor: '#e9b44c',
+          pointHoverRadius: 6,
+          pointHoverBackgroundColor: '#2b1019',
+          pointHoverBorderColor: '#e9b44c',
+          pointHoverBorderWidth: 3,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#e9b44c', titleColor: '#1a0a10', bodyColor: '#1a0a10',
+            displayColors: false, padding: 8, cornerRadius: 8,
+            titleFont: { family: 'JetBrains Mono, Consolas, monospace', size: 11 },
+            bodyFont: { family: 'JetBrains Mono, Consolas, monospace', size: 12, weight: '600' },
+            callbacks: { label: c => `${fmt(c.parsed.y)} events` },
+          },
+        },
+        scales: {
+          y: { beginAtZero: true, grid: { color: '#3d1a26' }, border: { display: false },
+               ticks: { color: '#c48a9b', font: { family: 'JetBrains Mono, Consolas, monospace', size: 10 }, maxTicksLimit: 4 } },
+          x: { grid: { display: false }, border: { display: false },
+               ticks: { color: '#c48a9b', font: { family: 'JetBrains Mono, Consolas, monospace', size: 10 }, maxTicksLimit: 7, maxRotation: 0 } },
+        },
+      },
+    });
+  }
 
-    // Fill the snippets with this server's real address, so they also work
-    // when Pulse runs on another port (e.g. `pulse start --port 5000`)
-    function fillSnippets() {
-      const origin = window.location.origin;
-      document.getElementById('js-snippet').textContent =
+  // ---------- Row 2 ----------
+  function renderTopEvents(counts) {
+    const el = document.getElementById('top-events-table');
+    // Hide Pulse's own internal events (their names start with $)
+    counts = counts.filter(e => !String(e.event_name).startsWith('$'));
+    if (!counts.length) { el.innerHTML = '<p class="empty">No events yet</p>'; return; }
+    const total = counts.reduce((s, e) => s + e.count, 0) || 1;
+    const max = counts[0].count || 1;
+    el.innerHTML = `
+      <table>
+        <thead><tr><th>Event</th><th>Count</th><th>Share</th><th class="hide-sm"></th></tr></thead>
+        <tbody>
+          ${counts.slice(0, 8).map((e, i) => {
+            const colour = colourFor(e.event_name, i);
+            return `<tr>
+              <td><div class="ev">${joltBadge(colour)}<b>${escapeHtml(e.event_name)}</b></div></td>
+              <td class="num">${fmt(e.count)}</td>
+              <td class="num" style="color:var(--muted)">${pct(e.count / total)}</td>
+              <td class="hide-sm"><div class="bar"><i style="width:${Math.max(2, Math.round(e.count / max * 100))}%;background:${colour}"></i></div></td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  }
+
+  function renderFunnel(data) {
+    const el = document.getElementById('funnel-chart');
+    document.getElementById('funnel-title').textContent = funnelSteps().join(' → ') || 'add some steps';
+    const convValue = document.getElementById('conv-value');
+    if (!data.length || !data[0].users) {
+      el.innerHTML = '<p class="empty">No users did these steps yet</p>';
+      convValue.textContent = '—';
+      return;
+    }
+    // Circles shrink with each step: area matches the number of users
+    const top = data[0].users || 1;
+    const shades = ['#1a0a10', '#4f6b45', '#7a2741', '#8a5566', '#3a1d28'];
+    el.innerHTML = `<div class="fsteps">${data.map((d, i) => {
+      const size = Math.max(14, Math.round(74 * Math.sqrt(Number(d.users) / top)));
+      const arrow = i === 0 ? '' :
+        `<div class="arrow">→<br>${Math.round(Number(d.conversion_from_previous) * 100) || 0}%</div>`;
+      return `${arrow}<div class="st"><span style="width:${size}px;height:${size}px;background:${shades[i % shades.length]}"></span>
+        <b>${fmt(d.users)}</b>${escapeHtml(d.step)}</div>`;
+    }).join('')}</div>`;
+
+    // Small sage card: conversion from the first step to the last
+    const last = data[data.length - 1];
+    convValue.textContent = data.length > 1 ? pct(last.conversion_from_top) : '—';
+    document.getElementById('conv-sub').textContent =
+      data.length > 1 ? `${data[0].step} → ${last.step}` : 'add 2+ funnel steps';
+  }
+
+  function renderRetention(data) {
+    const el = document.getElementById('retention-table');
+    const retValue = document.getElementById('ret-value');
+    if (!data.length) {
+      el.innerHTML = '<p class="empty">Not enough data yet. Retention needs events across multiple days.</p>';
+      retValue.textContent = '—';
+      return;
+    }
+
+    // Pivot: cohort → { day: rate }. Show at most days 0–7 and the latest 6 cohorts.
+    const cohorts = [...new Set(data.map(r => r.cohort))].slice(-6);
+    const days = [...new Set(data.map(r => r.day))].sort((a, b) => a - b).filter(d => d <= 7);
+    const lookup = {};
+    data.forEach(r => { lookup[`${r.cohort}__${r.day}`] = r.retention_rate; });
+
+    // Cell colour gets stronger the more people came back
+    const cell = rate => rate == null ? '<span class="cell" style="color:#4a2d3a">·</span>'
+      : `<span class="cell" style="background:rgba(233,180,76,${(0.12 + rate / 100 * 0.75).toFixed(2)});color:${rate >= 55 ? '#1a0a10' : '#f4e9e2'}">${escapeHtml(Math.round(rate))}%</span>`;
+
+    el.innerHTML = `
+      <table>
+        <thead><tr><th>Cohort</th><th>Users</th>${days.map(d => `<th>D${escapeHtml(d)}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${cohorts.map(cohort => {
+            const size = data.find(r => r.cohort === cohort)?.cohort_size || 0;
+            return `<tr><td class="mono" style="color:var(--muted)">${escapeHtml(cohort.slice(5))}</td>
+              <td class="mono">${fmt(size)}</td>
+              ${days.map(d => `<td>${cell(lookup[`${cohort}__${d}`])}</td>`).join('')}</tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+
+    // Small blush card: average day-1 retention across cohorts
+    const day1 = data.filter(r => r.day === 1);
+    if (day1.length) {
+      const avg = day1.reduce((s, r) => s + r.retention_rate, 0) / day1.length;
+      retValue.textContent = `${Math.round(avg)}%`;
+      document.getElementById('ret-sub').textContent = `average of ${day1.length} cohort${day1.length === 1 ? '' : 's'}`;
+    } else {
+      retValue.textContent = '—';
+      document.getElementById('ret-sub').textContent = 'needs 2+ days of data';
+    }
+  }
+
+  // ---------- Experiments ----------
+  let currentExperiment = null;   // which experiment the card is showing
+
+  function pickExperiment(name) {
+    currentExperiment = name;
+    renderExperiments();
+  }
+
+  async function renderExperiments() {
+    const el = document.getElementById('experiments-section');
+    const chips = document.getElementById('exp-chips');
+    const experiments = await getJSON('/experiments', null);
+    if (experiments === null) { el.innerHTML = '<p class="empty">Could not load experiments</p>'; return; }
+    if (!experiments.length) {
+      chips.innerHTML = '';
+      el.innerHTML = '<div class="k">No experiments yet</div><p class="note" style="margin-top:10px">Create one with <code style="background:rgba(26,10,16,.12)">POST /experiments</code>, then its results show up here.</p>';
+      return;
+    }
+    if (!experiments.some(e => e.name === currentExperiment)) currentExperiment = experiments[0].name;
+    const exp = experiments.find(e => e.name === currentExperiment);
+
+    // One chip per experiment, so you can switch between them
+    chips.innerHTML = experiments.map(e =>
+      `<button class="chip ${e.name === currentExperiment ? 'on' : ''}" data-name="${escapeHtml(e.name)}"
+         onclick="pickExperiment(this.dataset.name)">${escapeHtml(e.name)}</button>`).join('');
+
+    const r = await getJSON('/experiments/' + encodeURIComponent(exp.name) + '/results', null);
+    let html = `<div class="k" style="padding-right:46px">Goal: ${escapeHtml(exp.goal_event)} · <span class="pill-status">${escapeHtml(exp.status)}</span></div>`;
+
+    if (!r || !r.variants || !r.variants.length) {
+      el.innerHTML = html + '<p class="note" style="margin-top:14px">No assignment data yet.</p>';
+      return;
+    }
+
+    const [control, treatment] = r.variants;   // first variant is the control
+    const points = x => `${x >= 0 ? '+' : ''}${(Number(x) * 100).toFixed(1)}`;
+    const cmp = (r.comparisons || [])[0];
+
+    // Jolt split chart: top half = treatment, bottom half = control.
+    // Each half's size follows its conversion rate.
+    const rates = r.variants.map(v => Number(v.conversion_rate));
+    const maxRate = Math.max(...rates, 0.0001);
+    const radius = v => 22 + 30 * (Number(v.conversion_rate) / maxRate);
+    const topV = treatment || control;
+    const rt = radius(topV), rc = radius(control);
+    html += `
+      <div class="exp-row">
+        <svg viewBox="0 0 120 120" width="124" height="124" style="flex:none">
+          <path d="M${56 - rt} 56A${rt} ${rt} 0 0 1 ${56 + rt} 56Z" fill="#1a0a10"/>
+          <path d="M${64 - rc} 64A${rc} ${rc} 0 0 0 ${64 + rc} 64Z" fill="#7a2741"/>
+        </svg>
+        <div class="legend">
+          ${r.variants.map((v, i) => `<div><b style="${i === 0 ? 'color:#7a2741' : ''}">${pct(v.conversion_rate)}</b>
+            ${escapeHtml(v.variant)}${i === 0 && v.variant !== 'control' ? ' (control)' : ''} · ${fmt(v.users)} users</div>`).join('')}
+          ${cmp ? `<div class="mono" style="font-size:11.5px">95% range: ${points(cmp.ci_low)} → ${points(cmp.ci_high)} pts</div>` : ''}
+        </div>
+      </div>
+      <p class="note" style="color:var(--ink)">${escapeHtml(r.summary)}</p>
+      ${r.p_value !== null && r.p_value !== undefined ? `<p class="note mono" style="font-size:11.5px;margin-top:8px">p-value: ${escapeHtml(r.p_value)}</p>` : ''}`;
+    el.innerHTML = html;
+  }
+
+  // ---------- Live events ----------
+  let selectedEventId = null;
+  let recentEvents = [];
+
+  function renderRecentEvents(data) {
+    recentEvents = [...data].reverse();   // newest first
+    const el = document.getElementById('recent-events-table');
+    if (!recentEvents.length) { el.innerHTML = '<p class="empty">No events yet</p>'; return; }
+    if (!recentEvents.some(e => e.event_id === selectedEventId)) selectedEventId = recentEvents[0].event_id;
+
+    el.innerHTML = recentEvents.slice(0, 30).map(e => `
+      <button class="erow ${e.event_id === selectedEventId ? 'on' : ''}" data-id="${escapeHtml(e.event_id)}" onclick="selectEvent(this.dataset.id)">
+        <span class="tag ${/error|fail|exception/i.test(e.event_name) ? 'err' : ''}">${escapeHtml(e.event_name)}</span>
+        ${e.user_id ? escapeHtml(e.user_id) : '<span style="opacity:.6">anonymous</span>'}
+        <span class="t">${escapeHtml(new Date(e.timestamp).toLocaleTimeString())}</span>
+      </button>`).join('');
+    renderEventDetail();
+  }
+
+  function selectEvent(id) {
+    selectedEventId = id;
+    document.querySelectorAll('.erow').forEach(row => row.classList.toggle('on', row.dataset.id === id));
+    renderEventDetail();
+  }
+
+  function renderEventDetail() {
+    const el = document.getElementById('event-detail');
+    const e = recentEvents.find(x => x.event_id === selectedEventId);
+    if (!e) { el.innerHTML = '<p class="empty">Click an event to see its details</p>'; return; }
+    const props = Object.entries(e.properties || {});
+    el.innerHTML = `
+      <div class="k">Event · ${e.user_id ? escapeHtml(e.user_id) : 'anonymous'}</div>
+      <div class="v">${escapeHtml(e.event_name)}</div>
+      <div class="props">
+        ${props.length ? props.slice(0, 6).map(([k, v]) => `
+          <div class="prop"><div class="k">${escapeHtml(k)}</div>
+            <div class="v">${escapeHtml(typeof v === 'object' ? JSON.stringify(v) : v)}</div></div>`).join('')
+          : '<div class="prop"><div class="k">properties</div><div class="v">none</div></div>'}
+      </div>
+      <div class="foot"><span>${escapeHtml(new Date(e.timestamp).toISOString().replace('T', ' ').slice(0, 19))} UTC</span>
+        <span>${escapeHtml(String(e.event_id || '').slice(0, 12))}…</span></div>`;
+  }
+
+  // ---------- Welcome screen (shown until the first event arrives) ----------
+
+  // Fill the snippets with this server's real address, so they also work
+  // when Pulse runs on another port (e.g. `pulse start --port 5000`)
+  function fillSnippets() {
+    const origin = window.location.origin;
+    document.getElementById('origin-label').textContent = window.location.host;
+    document.getElementById('js-snippet').textContent =
 `<script src="${origin}/pulse.js"><\/script>
 <script>
   Pulse.init({ endpoint: "${origin}" });
   Pulse.identify("alice");
   Pulse.track("button_click", { button: "signup" });
 <\/script>`;
-      document.getElementById('py-snippet').textContent =
+    document.getElementById('py-snippet').textContent =
 `import pulse
 
 pulse.init(endpoint="${origin}")
 pulse.track("signup", user_id="alice", properties={"plan": "pro"})`;
+  }
+
+  function showWelcome(show) {
+    document.getElementById('welcome').style.display = show ? 'block' : 'none';
+    document.getElementById('charts').style.display = show ? 'none' : 'block';
+  }
+
+  async function copySnippet(id, button) {
+    try {
+      await navigator.clipboard.writeText(document.getElementById(id).textContent);
+      button.textContent = 'Copied!';
+    } catch {
+      button.textContent = 'Select & copy';  // clipboard not allowed: copy by hand
     }
+    setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+  }
 
-    function showWelcome(show) {
-      document.getElementById('welcome').style.display = show ? 'block' : 'none';
-      document.getElementById('charts').style.display = show ? 'none' : 'flex';
+  // Send one event from the dashboard itself, to prove everything works
+  async function sendTestEvent() {
+    const button = document.getElementById('test-event-button');
+    const status = document.getElementById('test-event-status');
+    button.disabled = true;
+    try {
+      const res = await fetch('/events/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify([{
+          event_name: 'test_event',
+          user_id: 'pulse_test',
+          properties: { source: 'dashboard' },
+        }]),
+      });
+      if (!res.ok) throw new Error();
+      status.textContent = 'Sent! Loading charts…';
+      await refresh();
+    } catch {
+      status.textContent = 'Could not send the test event. Is Pulse still running?';
+    } finally {
+      button.disabled = false;
     }
+  }
 
-    async function copySnippet(id, button) {
-      try {
-        await navigator.clipboard.writeText(document.getElementById(id).textContent);
-        button.textContent = 'Copied!';
-      } catch {
-        button.textContent = 'Select & copy';  // clipboard not allowed: copy by hand
-      }
-      setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+  // ---------- Refreshing ----------
+
+  const REFRESH_EVERY_MS = 5000;  // check for new events every 5 seconds
+  let isRefreshing = false;       // stops two refreshes running at the same time
+
+  async function refresh() {
+    if (isRefreshing) return;
+    isRefreshing = true;
+    try {
+      const { counts, overTime, topUsers, recent, funnel, retention } = await fetchAll();
+      // No events yet -> show the welcome screen instead of empty charts
+      showWelcome(counts.length === 0);
+      renderBpm(recent);
+      renderCards(counts, topUsers);
+      if (overTime.length) renderOverTime(overTime);
+      renderTopEvents(counts);
+      renderFunnel(funnel);
+      renderRetention(retention);
+      renderRecentEvents(recent);
+      await renderExperiments();
+      document.getElementById('last-updated').textContent =
+        `Updated ${new Date().toLocaleTimeString()}`;
+    } catch {
+      document.getElementById('last-updated').textContent = 'Error loading data';
+    } finally {
+      isRefreshing = false;
     }
+  }
 
-    // Send one event from the dashboard itself, to prove everything works
-    async function sendTestEvent() {
-      const button = document.getElementById('test-event-button');
-      const status = document.getElementById('test-event-status');
-      button.disabled = true;
-      try {
-        const res = await fetch('/events/batch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify([{
-            event_name: 'test_event',
-            user_id: 'pulse_test',
-            properties: { source: 'dashboard' },
-          }]),
-        });
-        if (!res.ok) throw new Error();
-        status.textContent = 'Sent! Loading charts…';
-        await refresh();
-      } catch {
-        status.textContent = 'Could not send the test event. Is Pulse still running?';
-      } finally {
-        button.disabled = false;
-      }
-    }
+  // Light up the tab and rail icon for the section you're looking at
+  const SECTIONS = ['overview', 'funnels', 'retention', 'experiments', 'events'];
+  window.addEventListener('scroll', () => {
+    let current = 'overview';
+    SECTIONS.forEach(id => {
+      const el = document.getElementById(id);
+      if (el && el.getBoundingClientRect().top < window.innerHeight * 0.4) current = id;
+    });
+    document.querySelectorAll('.pills a').forEach((a, i) => a.classList.toggle('on', SECTIONS[i] === current));
+    document.querySelectorAll('.rail .nav-i').forEach((b, i) => b.classList.toggle('on', SECTIONS[i] === current));
+  }, { passive: true });
 
-    // ---- Refreshing ----
-
-    const REFRESH_EVERY_MS = 5000;  // check for new events every 5 seconds
-    let isRefreshing = false;       // stops two refreshes running at the same time
-
-    async function refresh() {
-      if (isRefreshing) return;
-      isRefreshing = true;
-      try {
-        const { counts, overTime, topUsers, recent, funnel, retention } = await fetchAll();
-        // No events yet -> show the welcome screen instead of empty charts
-        showWelcome(counts.length === 0);
-        renderCards(counts, topUsers);
-        if (overTime.length) renderOverTime(overTime);
-        if (counts.length) renderEventCounts(counts);
-        renderTopUsers(topUsers);
-        renderFunnel(funnel);
-        renderRetention(retention);
-        renderRecentEvents(recent);
-        await renderExperiments();
-        document.getElementById('last-updated').textContent =
-          `Updated ${new Date().toLocaleTimeString()}`;
-      } catch {
-        document.getElementById('last-updated').textContent = 'Error loading data';
-      } finally {
-        isRefreshing = false;
-      }
-    }
-
-    fillSnippets();
-    refresh();
-    // Refresh regularly, but not while the tab is hidden (saves work)
-    setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_EVERY_MS);
-    // When you come back to the tab, update straight away
-    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
-  </script>
+  fillSnippets();
+  refresh();
+  // Refresh regularly, but not while the tab is hidden (saves work)
+  setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_EVERY_MS);
+  // When you come back to the tab, update straight away
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
+</script>
 </body>
 </html>
