@@ -116,6 +116,16 @@ def create_app(data_dir: Path) -> FastAPI:
             media_type="application/javascript",
         )
 
+    @app.get("/chart.umd.min.js")
+    def serve_chart_library():
+        # The dashboard's chart library, shipped inside Pulse so charts work
+        # without internet (it used to be downloaded from a CDN website)
+        return Response(
+            content=(STATIC_DIR / "chart.umd.min.js").read_text(encoding="utf-8"),
+            media_type="application/javascript",
+            headers={"Cache-Control": "max-age=86400"},  # browser may keep it a day
+        )
+
     @app.get("/health")
     def health_check():
         return {"status": "ok"}

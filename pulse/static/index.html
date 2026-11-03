@@ -4,7 +4,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pulse</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <!-- Chart library, served by Pulse itself so it works offline -->
+  <script src="/chart.umd.min.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -138,15 +139,80 @@
       text-align: center;
       padding: 32px 0;
     }
+
+    /* Holds all the charts, so they can be hidden together */
+    .stack { display: flex; flex-direction: column; gap: 24px; }
+
+    .header-right { display: flex; align-items: center; gap: 12px; }
+
+    .btn {
+      padding: 8px 16px;
+      background: #6366f1;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+    .btn:disabled { opacity: 0.6; cursor: default; }
+    .btn-light { background: #f1f3f5; color: #495057; }
+
+    /* Welcome screen shown until the first event arrives */
+    #welcome h2 { font-size: 22px; letter-spacing: -0.5px; margin-bottom: 8px; }
+    #welcome p { color: #6c757d; font-size: 14px; line-height: 1.6; }
+    #welcome h3 { font-size: 14px; margin: 24px 0 8px; }
+    .snippet { position: relative; }
+    .snippet pre {
+      background: #1a1a2e;
+      color: #e9ecef;
+      border-radius: 8px;
+      padding: 16px;
+      font-size: 13px;
+      line-height: 1.5;
+      overflow-x: auto;
+    }
+    .snippet .btn { position: absolute; top: 8px; right: 8px; padding: 4px 10px; font-size: 12px; }
+    .welcome-actions { display: flex; align-items: center; gap: 12px; margin-top: 24px; flex-wrap: wrap; }
+    code { font-family: monospace; background: #f1f3f5; padding: 1px 6px; border-radius: 4px; }
   </style>
 </head>
 <body>
   <header>
     <h1>pulse<span>.</span></h1>
-    <span id="last-updated">Loading...</span>
+    <div class="header-right">
+      <span id="last-updated">Loading...</span>
+      <button id="refresh-button" class="btn btn-light" onclick="refresh()">Refresh</button>
+    </div>
   </header>
 
   <main>
+    <!-- Welcome screen: only shown while there are no events yet -->
+    <div id="welcome" class="chart-card" style="display:none;">
+      <h2>👋 Pulse is running</h2>
+      <p>No events yet. Add one of these snippets to your app, or press the button below to send a test event.
+        Charts appear here as soon as the first event arrives.</p>
+
+      <h3>JavaScript (any website)</h3>
+      <div class="snippet">
+        <button class="btn btn-light" onclick="copySnippet('js-snippet', this)">Copy</button>
+        <pre id="js-snippet"></pre>
+      </div>
+
+      <h3>Python (any backend or script)</h3>
+      <div class="snippet">
+        <button class="btn btn-light" onclick="copySnippet('py-snippet', this)">Copy</button>
+        <pre id="py-snippet"></pre>
+      </div>
+
+      <div class="welcome-actions">
+        <button id="test-event-button" class="btn" onclick="sendTestEvent()">Send a test event</button>
+        <span id="test-event-status" style="font-size:13px;color:#6c757d;"></span>
+        <span style="font-size:13px;color:#6c757d;">or run <code>pulse demo-data</code> for sample data</span>
+      </div>
+    </div>
+
+    <!-- All the charts -->
+    <div id="charts" class="stack">
     <div class="cards">
       <div class="card">
         <div class="label">Total Events</div>
@@ -207,6 +273,7 @@
     <div class="chart-card">
       <h2>Recent Events</h2>
       <div id="recent-events-table"></div>
+    </div>
     </div>
   </main>
 
@@ -455,23 +522,6 @@
       `;
     }
 
-    async function refresh() {
-      try {
-        const { counts, overTime, topUsers, recent, funnel, retention } = await fetchAll();
-        renderCards(counts, topUsers);
-        if (overTime.length) renderOverTime(overTime);
-        if (counts.length) renderEventCounts(counts);
-        renderTopUsers(topUsers);
-        renderFunnel(funnel);
-        renderRetention(retention);
-        renderRecentEvents(recent);
-        document.getElementById('last-updated').textContent =
-          `Updated ${new Date().toLocaleTimeString()}`;
-      } catch {
-        document.getElementById('last-updated').textContent = 'Error loading data';
-      }
-    }
-
     async function renderExperiments() {
       const el = document.getElementById('experiments-section');
       let experiments;
@@ -543,9 +593,78 @@
       }).join('<hr style="border:none;border-top:1px solid #f1f3f5;margin:16px 0;">');
     }
 
+    // ---- Welcome screen (shown until the first event arrives) ----
+
+    // Fill the snippets with this server's real address, so they also work
+    // when Pulse runs on another port (e.g. `pulse start --port 5000`)
+    function fillSnippets() {
+      const origin = window.location.origin;
+      document.getElementById('js-snippet').textContent =
+`<script src="${origin}/pulse.js"><\/script>
+<script>
+  Pulse.init({ endpoint: "${origin}" });
+  Pulse.identify("alice");
+  Pulse.track("button_click", { button: "signup" });
+<\/script>`;
+      document.getElementById('py-snippet').textContent =
+`import pulse
+
+pulse.init(endpoint="${origin}")
+pulse.track("signup", user_id="alice", properties={"plan": "pro"})`;
+    }
+
+    function showWelcome(show) {
+      document.getElementById('welcome').style.display = show ? 'block' : 'none';
+      document.getElementById('charts').style.display = show ? 'none' : 'flex';
+    }
+
+    async function copySnippet(id, button) {
+      try {
+        await navigator.clipboard.writeText(document.getElementById(id).textContent);
+        button.textContent = 'Copied!';
+      } catch {
+        button.textContent = 'Select & copy';  // clipboard not allowed: copy by hand
+      }
+      setTimeout(() => { button.textContent = 'Copy'; }, 1500);
+    }
+
+    // Send one event from the dashboard itself, to prove everything works
+    async function sendTestEvent() {
+      const button = document.getElementById('test-event-button');
+      const status = document.getElementById('test-event-status');
+      button.disabled = true;
+      try {
+        const res = await fetch('/events/batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify([{
+            event_name: 'test_event',
+            user_id: 'pulse_test',
+            properties: { source: 'dashboard' },
+          }]),
+        });
+        if (!res.ok) throw new Error();
+        status.textContent = 'Sent! Loading charts…';
+        await refresh();
+      } catch {
+        status.textContent = 'Could not send the test event. Is Pulse still running?';
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    // ---- Refreshing ----
+
+    const REFRESH_EVERY_MS = 5000;  // check for new events every 5 seconds
+    let isRefreshing = false;       // stops two refreshes running at the same time
+
     async function refresh() {
+      if (isRefreshing) return;
+      isRefreshing = true;
       try {
         const { counts, overTime, topUsers, recent, funnel, retention } = await fetchAll();
+        // No events yet -> show the welcome screen instead of empty charts
+        showWelcome(counts.length === 0);
         renderCards(counts, topUsers);
         if (overTime.length) renderOverTime(overTime);
         if (counts.length) renderEventCounts(counts);
@@ -558,11 +677,17 @@
           `Updated ${new Date().toLocaleTimeString()}`;
       } catch {
         document.getElementById('last-updated').textContent = 'Error loading data';
+      } finally {
+        isRefreshing = false;
       }
     }
 
+    fillSnippets();
     refresh();
-    setInterval(refresh, 30_000);
+    // Refresh regularly, but not while the tab is hidden (saves work)
+    setInterval(() => { if (!document.hidden) refresh(); }, REFRESH_EVERY_MS);
+    // When you come back to the tab, update straight away
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) refresh(); });
   </script>
 </body>
 </html>

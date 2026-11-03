@@ -162,3 +162,33 @@ class TestExperimentResults:
         by_variant = {v["variant"]: v for v in res["variants"]}
         assert sum(v["users"] for v in by_variant.values()) == 4
         assert by_variant[variants["alice"]]["conversions"] == 1
+
+
+class TestFirstFiveMinutes:
+    def test_chart_library_is_served_by_pulse(self, temp_data_dir):
+        # E: charts must work without internet, so Pulse serves Chart.js itself
+        with make_client(temp_data_dir) as client:
+            res = client.get("/chart.umd.min.js")
+
+        assert res.status_code == 200
+        assert "javascript" in res.headers["content-type"]
+        assert "Chart" in res.text
+
+    def test_dashboard_loads_no_scripts_from_the_internet(self, temp_data_dir):
+        import re
+
+        with make_client(temp_data_dir) as client:
+            page = client.get("/").text
+
+        external = re.findall(r'<script[^>]+src="(https?://[^"]+)"', page)
+        assert external == []
+        assert '<script src="/chart.umd.min.js"></script>' in page
+
+    def test_dashboard_has_welcome_screen_and_fast_refresh(self, temp_data_dir):
+        with make_client(temp_data_dir) as client:
+            page = client.get("/").text
+
+        assert 'id="welcome"' in page            # C: shown when there are no events
+        assert "Send a test event" in page
+        assert "REFRESH_EVERY_MS = 5000" in page  # D: refresh every 5 seconds
+        assert 'id="refresh-button"' in page
