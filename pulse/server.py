@@ -8,7 +8,6 @@ from typing import Any
 
 import uvicorn
 from fastapi import Body, FastAPI, HTTPException, Response
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from pydantic import ValidationError
 
@@ -54,6 +53,24 @@ def _z_test_p_value(n1: int, c1: int, n2: int, c2: int) -> float | None:
 STATIC_DIR = Path(__file__).parent / "static"
 DEFAULT_DATA_DIR = Path.home() / ".pulse" / "data" / "events"
 
+# Headers that tell a browser "any website may use this door"
+_SDK_CORS_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Max-Age": "600",  # browser may remember this for 10 minutes
+}
+
+
+def _is_sdk_door(method: str, path: str) -> bool:
+    """True for the few requests the SDKs make from other websites."""
+    method = method.upper()
+    if method == "POST" and path in ("/events", "/events/batch"):
+        return True  # sending events
+    if method == "GET" and path.startswith("/experiments/") and path.endswith("/assign"):
+        return True  # asking which variant a user gets
+    return False
+
 
 def create_app(data_dir: Path) -> FastAPI:
     store = EventStore(data_dir=data_dir)
@@ -68,13 +85,23 @@ def create_app(data_dir: Path) -> FastAPI:
 
     app = FastAPI(title="Pulse", lifespan=lifespan)
 
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-        allow_credentials=False,
-    )
+    # Other websites (the developer's app) may only use the "SDK doors":
+    # send events and ask for an experiment variant. Everything else (reading
+    # analytics, creating experiments, flushing) is for the dashboard only,
+    # which Pulse serves itself and so needs no extra permission.
+    @app.middleware("http")
+    async def allow_other_sites_only_for_sdk(request, call_next):
+        # A browser asks first ("preflight") before sending JSON to another site
+        if request.method == "OPTIONS":
+            asked_method = request.headers.get("access-control-request-method", "")
+            if _is_sdk_door(asked_method, request.url.path):
+                return Response(status_code=204, headers=_SDK_CORS_HEADERS)
+            return Response(status_code=400)
+
+        response = await call_next(request)
+        if _is_sdk_door(request.method, request.url.path):
+            response.headers.update(_SDK_CORS_HEADERS)
+        return response
 
     @app.get("/", response_class=HTMLResponse)
     def read_root():

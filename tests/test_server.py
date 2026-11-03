@@ -86,3 +86,57 @@ class TestStaticFiles:
         assert res.status_code == 200
         assert "javascript" in res.headers["content-type"]
         assert res.text == (STATIC_DIR / "pulse.js").read_bytes().decode("utf-8")
+
+
+class TestWhoCanTalkToPulse:
+    # Other websites (like the developer's own app) must be able to SEND events,
+    # but must NOT be able to READ the analytics data back.
+    EVIL = {"Origin": "http://some-other-website.com"}
+
+    def test_other_sites_can_send_events(self, temp_data_dir):
+        with make_client(temp_data_dir) as client:
+            # The browser first asks "may I send JSON here?" (a "preflight" check)
+            pre = client.options("/events/batch", headers={
+                **self.EVIL,
+                "Access-Control-Request-Method": "POST",
+                "Access-Control-Request-Headers": "content-type",
+            })
+            res = client.post("/events/batch", headers=self.EVIL,
+                              json=[{"event_name": "page_view"}])
+
+        assert pre.status_code in (200, 204)
+        assert pre.headers.get("access-control-allow-origin") == "*"
+        assert res.headers.get("access-control-allow-origin") == "*"
+
+    def test_other_sites_can_get_their_experiment_variant(self, temp_data_dir):
+        with make_client(temp_data_dir) as client:
+            client.post("/experiments", json={"name": "btn", "goal_event": "signup"})
+            res = client.get("/experiments/btn/assign?user_id=alice", headers=self.EVIL)
+
+        assert res.status_code == 200
+        assert res.headers.get("access-control-allow-origin") == "*"
+
+    def test_other_sites_cannot_read_data(self, temp_data_dir):
+        with make_client(temp_data_dir) as client:
+            for path in ["/events", "/analytics/events", "/analytics/top-users",
+                         "/experiments", "/analytics/retention"]:
+                res = client.get(path, headers=self.EVIL)
+                # Without this header, the browser hides the answer from the other site
+                assert "access-control-allow-origin" not in res.headers, path
+
+    def test_other_sites_cannot_create_experiments_or_flush(self, temp_data_dir):
+        with make_client(temp_data_dir) as client:
+            for path in ["/experiments", "/flush", "/analytics/funnel"]:
+                pre = client.options(path, headers={
+                    **self.EVIL,
+                    "Access-Control-Request-Method": "POST",
+                    "Access-Control-Request-Headers": "content-type",
+                })
+                assert "access-control-allow-origin" not in pre.headers, path
+
+    def test_dashboard_itself_still_works(self, temp_data_dir):
+        # The dashboard is served by Pulse itself, so it is "same site" and
+        # needs no special permission.
+        with make_client(temp_data_dir) as client:
+            assert client.get("/analytics/events").status_code == 200
+            assert client.get("/events").status_code == 200
