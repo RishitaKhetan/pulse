@@ -178,26 +178,42 @@ class QueryEngine:
 
         # Escape single quotes in step names
         safe = [s.replace("'", "''") for s in steps]
+        names = ", ".join(f"'{s}'" for s in safe)
 
-        step_cases = ", ".join(
-            f"MAX(CASE WHEN event_name = '{s}' THEN 1 ELSE 0 END) as s{i}"
-            for i, s in enumerate(safe)
-        )
+        # Build one small table per step: "each user + the first time they did
+        # this step AFTER finishing the previous step". A user only appears in
+        # step_N if they appear in step_(N-1) first, so the order is enforced.
+        step_tables = [f"""
+            step_0 AS (
+                SELECT user_id, MIN(timestamp) AS t
+                FROM base WHERE event_name = '{safe[0]}'
+                GROUP BY user_id
+            )"""]
+        for i in range(1, len(safe)):
+            step_tables.append(f"""
+            step_{i} AS (
+                SELECT b.user_id, MIN(b.timestamp) AS t
+                FROM base b
+                JOIN step_{i - 1} prev
+                  ON b.user_id = prev.user_id AND b.timestamp > prev.t
+                WHERE b.event_name = '{safe[i]}'
+                GROUP BY b.user_id
+            )""")
+
+        # Count how many users reached each step
         step_counts = ", ".join(
-            f"SUM({'*'.join(f's{j}' for j in range(i + 1))}) as step_{i}"
-            for i in range(len(safe))
+            f"(SELECT COUNT(*) FROM step_{i})" for i in range(len(safe))
         )
 
         rows = self._run(f"""
             WITH base AS (
-                SELECT user_id, event_name
+                -- only the events that are part of this funnel
+                SELECT user_id, event_name, timestamp
                 FROM read_parquet('{glob}', union_by_name=true)
-                WHERE user_id IS NOT NULL
+                WHERE user_id IS NOT NULL AND event_name IN ({names})
             ),
-            user_steps AS (
-                SELECT user_id, {step_cases} FROM base GROUP BY user_id
-            )
-            SELECT {step_counts} FROM user_steps
+            {",".join(step_tables)}
+            SELECT {step_counts}
         """)
 
         if not rows:

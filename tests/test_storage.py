@@ -86,6 +86,71 @@ class TestEventStore:
         assert names == {"first", "second"}
 
 
+def _save_events(data_dir, events):
+    """Helper: write (event_name, user_id, minute) tuples to disk, in a known time order."""
+    from datetime import datetime, timedelta, timezone
+
+    start = datetime(2026, 11, 3, 10, 0, tzinfo=timezone.utc)
+    store = EventStore(data_dir=data_dir)
+    store.start()
+    store.add_many([
+        Event(event_name=name, user_id=user, timestamp=start + timedelta(minutes=minute))
+        for name, user, minute in events
+    ])
+    store.stop()
+
+
+class TestFunnel:
+    def test_steps_must_happen_in_order(self, temp_data_dir):
+        # Bug 4: a user who did the steps in the wrong order used to be counted
+        from pulse.storage import QueryEngine
+
+        _save_events(temp_data_dir, [
+            ("view_pricing", "alice", 1), ("signup", "alice", 2),  # right order
+            ("signup", "bob", 1), ("view_pricing", "bob", 2),      # wrong order
+        ])
+
+        result = QueryEngine(temp_data_dir).funnel(["view_pricing", "signup"])
+
+        assert [r["users"] for r in result] == [2, 1]  # only alice finishes
+        assert result[1]["conversion_from_previous"] == 0.5
+
+    def test_earlier_wrong_order_does_not_block_later_right_order(self, temp_data_dir):
+        # carol signs up first, but later views pricing and signs up again -> counts
+        from pulse.storage import QueryEngine
+
+        _save_events(temp_data_dir, [
+            ("signup", "carol", 1), ("view_pricing", "carol", 2), ("signup", "carol", 3),
+        ])
+
+        result = QueryEngine(temp_data_dir).funnel(["view_pricing", "signup"])
+        assert [r["users"] for r in result] == [1, 1]
+
+    def test_three_steps_and_drop_off(self, temp_data_dir):
+        from pulse.storage import QueryEngine
+
+        _save_events(temp_data_dir, [
+            ("page_view", "a", 1), ("add_to_cart", "a", 2), ("purchase", "a", 3),
+            ("page_view", "b", 1), ("add_to_cart", "b", 2),
+            ("page_view", "c", 1), ("purchase", "c", 2),  # skipped add_to_cart
+        ])
+
+        result = QueryEngine(temp_data_dir).funnel(["page_view", "add_to_cart", "purchase"])
+        assert [r["users"] for r in result] == [3, 2, 1]
+
+    def test_same_step_twice_needs_two_separate_events(self, temp_data_dir):
+        # Funnel "page_view -> page_view" means two different page views
+        from pulse.storage import QueryEngine
+
+        _save_events(temp_data_dir, [
+            ("page_view", "a", 1), ("page_view", "a", 2),
+            ("page_view", "b", 1),
+        ])
+
+        result = QueryEngine(temp_data_dir).funnel(["page_view", "page_view"])
+        assert [r["users"] for r in result] == [2, 1]
+
+
 class TestFunnelDetection:
     def test_detect_funnel_patterns(self, temp_data_dir):
         from pulse.storage import QueryEngine

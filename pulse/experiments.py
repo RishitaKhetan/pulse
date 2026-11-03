@@ -7,8 +7,9 @@ from pulse.models import Experiment
 
 class ExperimentStore:
     def __init__(self, data_dir: Path):
-        # data_dir is ~/.pulse/data/events — store experiments one level up at ~/.pulse/
-        self._path = data_dir.parent.parent / "experiments.json"
+        # Keep experiments inside the data folder, next to the event files.
+        # (Going "up" from data_dir could write outside the folder the user chose.)
+        self._path = data_dir / "experiments.json"
 
     def _load(self) -> dict:
         if not self._path.exists():
